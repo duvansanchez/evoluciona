@@ -1,0 +1,117 @@
+import { useState } from 'react';
+import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, TrendingUp } from 'lucide-react';
+import MetricCard from '@/components/MetricCard';
+import PhraseCard from '@/components/phrases/PhraseCard';
+import { mockPhrases, mockPhraseCategories } from '@/data/mockData';
+
+export default function Phrases() {
+  const [phrases, setPhrases] = useState(mockPhrases);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
+
+  const activePhrases = phrases.filter(p => p.active);
+  const totalReviews = phrases.reduce((sum, p) => sum + p.reviewCount, 0);
+  const reviewedToday = phrases.filter(p => {
+    if (!p.lastReviewedAt) return false;
+    return new Date(p.lastReviewedAt).toDateString() === new Date().toDateString();
+  }).length;
+
+  const filtered = phrases.filter(p => {
+    if (selectedCategory !== 'all' && p.categoryId !== selectedCategory) return false;
+    if (selectedSubcategory !== 'all' && p.subcategoryId !== selectedSubcategory) return false;
+    return true;
+  });
+
+  const currentCategory = mockPhraseCategories.find(c => c.id === selectedCategory);
+  const subcategories = currentCategory?.subcategories ?? [];
+  const currentSubcategory = subcategories.find(s => s.id === selectedSubcategory);
+
+  const handleReview = (id: string) => {
+    setPhrases(prev => prev.map(p =>
+      p.id === id
+        ? { ...p, reviewCount: p.reviewCount + 1, lastReviewedAt: new Date().toISOString() }
+        : p
+    ));
+  };
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-heading font-bold text-foreground">Frases Inspiracionales</h1>
+          <p className="text-sm text-muted-foreground mt-1">Tu colección de sabiduría para el crecimiento personal</p>
+        </div>
+        <div className="flex items-center gap-2 self-start">
+          <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors">
+            <Dices className="h-4 w-4" />
+            Aleatoria
+          </button>
+          <button className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+            <Plus className="h-4 w-4" />
+            Nueva Frase
+          </button>
+        </div>
+      </div>
+
+      {/* Metrics */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
+        <MetricCard title="Total" value={phrases.length} icon={BookOpen} color="primary" subtitle={`${activePhrases.length} activas`} />
+        <MetricCard title="Hoy" value={reviewedToday} icon={Eye} color="success" subtitle="Repasadas" />
+        <MetricCard title="Total repasos" value={totalReviews} icon={RefreshCw} color="warning" />
+        <MetricCard title="Categorías" value={mockPhraseCategories.length} icon={Filter} color="primary" />
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <select
+          value={selectedCategory}
+          onChange={e => { setSelectedCategory(e.target.value); setSelectedSubcategory('all'); }}
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="all">Todas las categorías</option>
+          {mockPhraseCategories.map(cat => (
+            <option key={cat.id} value={cat.id}>{cat.name}</option>
+          ))}
+        </select>
+
+        {subcategories.length > 0 && (
+          <select
+            value={selectedSubcategory}
+            onChange={e => setSelectedSubcategory(e.target.value)}
+            className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="all">Todas las subcategorías</option>
+            {subcategories.map(sub => (
+              <option key={sub.id} value={sub.id}>{sub.name}</option>
+            ))}
+          </select>
+        )}
+
+        <span className="text-xs text-muted-foreground">{filtered.length} frases</span>
+      </div>
+
+      {/* Subcategory description */}
+      {currentSubcategory?.description && (
+        <div className="mb-5 rounded-lg bg-accent/50 p-3 text-xs text-muted-foreground animate-fade-in">
+          {currentSubcategory.description}
+        </div>
+      )}
+
+      {/* Phrases Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.map(phrase => (
+          <PhraseCard key={phrase.id} phrase={phrase} categories={mockPhraseCategories} onReview={handleReview} />
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
+          <p className="text-muted-foreground font-medium">No hay frases en esta categoría</p>
+          <p className="text-xs text-muted-foreground mt-1">Agrega tu primera frase inspiracional</p>
+        </div>
+      )}
+    </div>
+  );
+}
