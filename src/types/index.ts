@@ -1,6 +1,6 @@
 export type GoalCategory = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'general';
 export type GoalPriority = 'high' | 'medium' | 'low';
-export type DayPart = 'morning' | 'afternoon' | 'evening';
+export type DayPart = 'morning' | 'afternoon' | 'evening' | 'none';
 
 export interface SubGoal {
   id: string;
@@ -8,6 +8,7 @@ export interface SubGoal {
   completed: boolean;
   notes?: string;
   completedAt?: string;
+  priority?: GoalPriority;
 }
 
 export interface Goal {
@@ -19,12 +20,19 @@ export interface Goal {
   recurring: boolean;
   dayPart?: DayPart;
   estimatedHours?: number;
+  estimatedMinutes?: number;
+  reward?: string;
+  isParent: boolean;
+  parentGoalId?: string;
+  startDate?: string;
+  endDate?: string;
   subGoals: SubGoal[];
   completed: boolean;
   completedAt?: string;
   skipped: boolean;
   createdAt: string;
   scheduledFor?: string;
+  scheduledType?: 'today' | 'tomorrow' | 'specific';
 }
 
 export interface PhraseCategory {

@@ -24,10 +24,11 @@ const dayPartLabels: Record<string, string> = {
 
 interface GoalCardProps {
   goal: Goal;
+  onEdit?: (id: string) => void;
   onToggle?: (id: string) => void;
 }
 
-export default function GoalCard({ goal, onToggle }: GoalCardProps) {
+export default function GoalCard({ goal, onToggle, onEdit }: GoalCardProps) {
   const [expanded, setExpanded] = useState(false);
   const completedSubs = goal.subGoals.filter(s => s.completed).length;
 
@@ -57,7 +58,7 @@ export default function GoalCard({ goal, onToggle }: GoalCardProps) {
               {goal.title}
             </h3>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
+              <button onClick={() => onEdit?.(goal.id)} className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
               <button className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
             </div>
           </div>

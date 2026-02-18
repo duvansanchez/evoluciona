@@ -8,22 +8,22 @@ export const mockGoals: Goal[] = [
       { id: 's1', title: 'Preparar espacio', completed: true, completedAt: '2026-02-18T07:00:00' },
       { id: 's2', title: 'Meditación guiada', completed: false },
     ],
-    completed: false, skipped: false, createdAt: '2026-02-01T08:00:00',
+    completed: false, skipped: false, isParent: false, createdAt: '2026-02-01T08:00:00',
   },
   {
     id: '2', title: 'Leer 30 páginas', description: 'Continuar con el libro actual',
     category: 'daily', priority: 'medium', recurring: true, dayPart: 'evening',
-    subGoals: [], completed: true, completedAt: '2026-02-18T21:00:00', skipped: false, createdAt: '2026-02-01T08:00:00',
+    subGoals: [], completed: true, completedAt: '2026-02-18T21:00:00', skipped: false, isParent: false, createdAt: '2026-02-01T08:00:00',
   },
   {
     id: '3', title: 'Ejercicio cardiovascular', description: '30 min de cardio',
     category: 'daily', priority: 'high', recurring: true, dayPart: 'morning',
-    subGoals: [], completed: false, skipped: false, createdAt: '2026-02-01T08:00:00',
+    subGoals: [], completed: false, skipped: false, isParent: false, createdAt: '2026-02-01T08:00:00',
   },
   {
     id: '4', title: 'Escribir en diario', description: 'Reflexión del día',
     category: 'daily', priority: 'low', recurring: true, dayPart: 'evening',
-    subGoals: [], completed: false, skipped: true, createdAt: '2026-02-01T08:00:00',
+    subGoals: [], completed: false, skipped: true, isParent: false, createdAt: '2026-02-01T08:00:00',
   },
   {
     id: '5', title: 'Revisar finanzas semanales', description: 'Revisar gastos e ingresos de la semana',
@@ -33,12 +33,12 @@ export const mockGoals: Goal[] = [
       { id: 's4', title: 'Actualizar presupuesto', completed: false },
       { id: 's5', title: 'Planificar semana siguiente', completed: false },
     ],
-    completed: false, skipped: false, createdAt: '2026-02-10T08:00:00',
+    completed: false, skipped: false, isParent: false, createdAt: '2026-02-10T08:00:00',
   },
   {
     id: '6', title: 'Llamar a un amigo', description: 'Mantener contacto social',
     category: 'weekly', priority: 'low', recurring: true,
-    subGoals: [], completed: true, completedAt: '2026-02-16T15:00:00', skipped: false, createdAt: '2026-02-10T08:00:00',
+    subGoals: [], completed: true, completedAt: '2026-02-16T15:00:00', skipped: false, isParent: false, createdAt: '2026-02-10T08:00:00',
   },
   {
     id: '7', title: 'Curso de React avanzado', description: 'Completar módulo 5',
@@ -48,7 +48,7 @@ export const mockGoals: Goal[] = [
       { id: 's7', title: 'Hacer ejercicios prácticos', completed: false },
       { id: 's8', title: 'Proyecto final del módulo', completed: false },
     ],
-    completed: false, skipped: false, createdAt: '2026-02-01T08:00:00',
+    completed: false, skipped: false, isParent: false, createdAt: '2026-02-01T08:00:00',
   },
   {
     id: '8', title: 'Correr una media maratón', description: 'Entrenar para completar 21km',
@@ -57,12 +57,12 @@ export const mockGoals: Goal[] = [
       { id: 's9', title: 'Completar plan de 12 semanas', completed: false },
       { id: 's10', title: 'Inscribirse en carrera', completed: true },
     ],
-    completed: false, skipped: false, createdAt: '2026-01-01T08:00:00',
+    completed: false, skipped: false, isParent: false, createdAt: '2026-01-01T08:00:00',
   },
   {
     id: '9', title: 'Aprender a tocar guitarra', description: 'Nivel básico-intermedio',
     category: 'general', priority: 'medium', recurring: false,
-    subGoals: [], completed: false, skipped: false, createdAt: '2026-01-15T08:00:00',
+    subGoals: [], completed: false, skipped: false, isParent: false, createdAt: '2026-01-15T08:00:00',
   },
 ];
 

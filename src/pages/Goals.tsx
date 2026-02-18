@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { CheckCircle2, Circle, Clock, Grid3X3, List, Plus, RotateCcw, Target, TrendingUp } from 'lucide-react';
+import { CheckCircle2, Circle, Grid3X3, List, Plus, Target, TrendingUp } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
+import GoalModal from '@/components/goals/GoalModal';
 import { mockGoals } from '@/data/mockData';
-import type { GoalCategory } from '@/types';
+import type { Goal, GoalCategory } from '@/types';
 
 const tabs: { key: GoalCategory | 'all'; label: string }[] = [
   { key: 'all', label: 'Todos' },
@@ -18,6 +19,8 @@ export default function Goals() {
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [goals, setGoals] = useState(mockGoals);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
 
   const filtered = activeTab === 'all' ? goals : goals.filter(g => g.category === activeTab);
   const daily = goals.filter(g => g.category === 'daily');
@@ -31,7 +34,65 @@ export default function Goals() {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, completed: !g.completed, completedAt: !g.completed ? new Date().toISOString() : undefined } : g));
   };
 
-  // Sort: pending first, then completed
+  const handleEdit = (id: string) => {
+    const goal = goals.find(g => g.id === id);
+    if (goal) {
+      setEditingGoal(goal);
+      setModalOpen(true);
+    }
+  };
+
+  const handleCreate = () => {
+    setEditingGoal(null);
+    setModalOpen(true);
+  };
+
+  const handleSave = (data: any) => {
+    if (editingGoal) {
+      setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
+        ...g,
+        title: data.title,
+        description: data.description || undefined,
+        priority: data.priority,
+        category: data.category,
+        parentGoalId: data.parentGoalId || undefined,
+        startDate: data.startDate || undefined,
+        endDate: data.endDate || undefined,
+        estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+        estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+        reward: data.reward || undefined,
+        dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
+        recurring: data.recurring,
+        isParent: data.isParent,
+        scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+        subGoals: data.subGoals,
+      } : g));
+    } else {
+      const newGoal: Goal = {
+        id: `new-${Date.now()}`,
+        title: data.title,
+        description: data.description || undefined,
+        category: data.category,
+        priority: data.priority,
+        recurring: data.recurring,
+        dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
+        estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+        estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+        reward: data.reward || undefined,
+        isParent: data.isParent,
+        parentGoalId: data.parentGoalId || undefined,
+        startDate: data.startDate || undefined,
+        endDate: data.endDate || undefined,
+        subGoals: data.subGoals,
+        completed: false,
+        skipped: false,
+        createdAt: new Date().toISOString(),
+        scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+      };
+      setGoals(prev => [newGoal, ...prev]);
+    }
+  };
+
   const sorted = [...filtered].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     if (a.priority !== b.priority) {
@@ -49,7 +110,10 @@ export default function Goals() {
           <h1 className="text-2xl md:text-3xl font-heading font-bold text-foreground">Objetivos</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestiona tus metas y haz seguimiento de tu progreso</p>
         </div>
-        <button className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors self-start">
+        <button
+          onClick={handleCreate}
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors self-start"
+        >
           <Plus className="h-4 w-4" />
           Nuevo Objetivo
         </button>
@@ -102,7 +166,7 @@ export default function Goals() {
         : 'space-y-3'
       }>
         {sorted.map(goal => (
-          <GoalCard key={goal.id} goal={goal} onToggle={handleToggle} />
+          <GoalCard key={goal.id} goal={goal} onToggle={handleToggle} onEdit={handleEdit} />
         ))}
       </div>
 
@@ -113,6 +177,15 @@ export default function Goals() {
           <p className="text-xs text-muted-foreground mt-1">Crea tu primer objetivo para empezar</p>
         </div>
       )}
+
+      {/* Modal */}
+      <GoalModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        goal={editingGoal}
+        goals={goals}
+        onSave={handleSave}
+      />
     </div>
   );
 }
