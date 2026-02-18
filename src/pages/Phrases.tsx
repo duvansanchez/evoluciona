@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, TrendingUp } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, TrendingUp, Settings } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import PhraseCard from '@/components/phrases/PhraseCard';
 import { mockPhrases, mockPhraseCategories } from '@/data/mockData';
 
 export default function Phrases() {
+  const navigate = useNavigate();
   const [phrases, setPhrases] = useState(mockPhrases);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
@@ -43,6 +45,13 @@ export default function Phrases() {
           <p className="text-sm text-muted-foreground mt-1">Tu colección de sabiduría para el crecimiento personal</p>
         </div>
         <div className="flex items-center gap-2 self-start">
+          <button
+            onClick={() => navigate('/phrases/categories')}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors"
+          >
+            <Settings className="h-4 w-4" />
+            Categorías
+          </button>
           <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors">
             <Dices className="h-4 w-4" />
             Aleatoria
