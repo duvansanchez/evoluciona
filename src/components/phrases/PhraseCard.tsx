@@ -6,9 +6,10 @@ interface PhraseCardProps {
   phrase: Phrase;
   categories: PhraseCategory[];
   onReview?: (id: string) => void;
+  onEdit?: (phrase: Phrase) => void;
 }
 
-export default function PhraseCard({ phrase, categories, onReview }: PhraseCardProps) {
+export default function PhraseCard({ phrase, categories, onReview, onEdit }: PhraseCardProps) {
   const [showNotes, setShowNotes] = useState(false);
   const category = categories.find(c => c.id === phrase.categoryId);
   const subcategory = category?.subcategories.find(s => s.id === phrase.subcategoryId);
@@ -85,7 +86,10 @@ export default function PhraseCard({ phrase, categories, onReview }: PhraseCardP
         <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
           {phrase.active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
-        <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
+        <button
+          onClick={() => onEdit?.(phrase)}
+          className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+        >
           <Edit2 className="h-3.5 w-3.5" />
         </button>
         <button className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">

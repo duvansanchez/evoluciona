@@ -3,13 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, TrendingUp, Settings } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import PhraseCard from '@/components/phrases/PhraseCard';
+import PhraseModal from '@/components/phrases/PhraseModal';
 import { mockPhrases, mockPhraseCategories } from '@/data/mockData';
+import type { Phrase } from '@/types';
 
 export default function Phrases() {
   const navigate = useNavigate();
   const [phrases, setPhrases] = useState(mockPhrases);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
+  const [showPhraseModal, setShowPhraseModal] = useState(false);
+  const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
 
   const activePhrases = phrases.filter(p => p.active);
   const totalReviews = phrases.reduce((sum, p) => sum + p.reviewCount, 0);
@@ -36,6 +40,36 @@ export default function Phrases() {
     ));
   };
 
+  const handleCreatePhrase = () => {
+    setEditingPhrase(null);
+    setShowPhraseModal(true);
+  };
+
+  const handleEditPhrase = (phrase: Phrase) => {
+    setEditingPhrase(phrase);
+    setShowPhraseModal(true);
+  };
+
+  const handleSavePhrase = (formData: any) => {
+    if (editingPhrase) {
+      // Editar frase existente
+      setPhrases(prev => prev.map(p =>
+        p.id === editingPhrase.id
+          ? { ...p, ...formData }
+          : p
+      ));
+    } else {
+      // Crear nueva frase
+      const newPhrase: Phrase = {
+        id: `phrase-${Date.now()}`,
+        ...formData,
+        reviewCount: 0,
+        createdAt: new Date().toISOString(),
+      };
+      setPhrases(prev => [...prev, newPhrase]);
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -56,7 +90,10 @@ export default function Phrases() {
             <Dices className="h-4 w-4" />
             Aleatoria
           </button>
-          <button className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+          <button
+            onClick={handleCreatePhrase}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors"
+          >
             <Plus className="h-4 w-4" />
             Nueva Frase
           </button>
@@ -110,7 +147,13 @@ export default function Phrases() {
       {/* Phrases Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map(phrase => (
-          <PhraseCard key={phrase.id} phrase={phrase} categories={mockPhraseCategories} onReview={handleReview} />
+          <PhraseCard 
+            key={phrase.id} 
+            phrase={phrase} 
+            categories={mockPhraseCategories} 
+            onReview={handleReview}
+            onEdit={handleEditPhrase}
+          />
         ))}
       </div>
 
@@ -121,6 +164,15 @@ export default function Phrases() {
           <p className="text-xs text-muted-foreground mt-1">Agrega tu primera frase inspiracional</p>
         </div>
       )}
+
+      {/* Phrase Modal */}
+      <PhraseModal
+        open={showPhraseModal}
+        onOpenChange={setShowPhraseModal}
+        phrase={editingPhrase}
+        categories={mockPhraseCategories}
+        onSave={handleSavePhrase}
+      />
     </div>
   );
 }

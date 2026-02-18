@@ -200,16 +200,6 @@ El **repositorio de GitHub** (daily-questions-app) es una aplicación Flask/Pyth
 - ❌ No tiene gestión de audios
 - ❌ No tiene contenido multimedia
 
-### 3.5 Navegación SPA
-**Proyecto actual tiene:**
-- Navegación instantánea sin recargas
-- React Router con transiciones
-- Layout compartido
-- Navegación lateral con iconos
-
-**GitHub:**
-- ❌ Navegación tradicional con recargas de página
-- ❌ Sin transiciones entre vistas
 
 ### 3.6 Componentes Reutilizables
 **Proyecto actual tiene:**
@@ -220,9 +210,6 @@ El **repositorio de GitHub** (daily-questions-app) es una aplicación Flask/Pyth
 - `Layout` con navegación
 - Sistema de diseño consistente
 
-**GitHub:**
-- ❌ Templates HTML monolíticos
-- ❌ Menos reutilización de código
 
 ### 3.7 Vistas de Visualización
 **Proyecto actual tiene:**
