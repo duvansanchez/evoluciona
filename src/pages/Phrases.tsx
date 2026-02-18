@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, TrendingUp, Settings } from 'lucide-react';
+import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, Settings } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import PhraseCard from '@/components/phrases/PhraseCard';
 import PhraseModal from '@/components/phrases/PhraseModal';
+import ReviewModal from '@/components/phrases/ReviewModal';
 import { mockPhrases, mockPhraseCategories } from '@/data/mockData';
 import type { Phrase } from '@/types';
 
@@ -13,6 +14,7 @@ export default function Phrases() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
   const [showPhraseModal, setShowPhraseModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
 
   const activePhrases = phrases.filter(p => p.active);
@@ -38,6 +40,39 @@ export default function Phrases() {
         ? { ...p, reviewCount: p.reviewCount + 1, lastReviewedAt: new Date().toISOString() }
         : p
     ));
+  };
+
+  const handleReviewAll = () => {
+    if (filtered.length === 0) return;
+    setShowReviewModal(true);
+  };
+
+  const handleRandomPhrase = () => {
+    // Mostrar una frase aleatoria
+    if (filtered.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * filtered.length);
+    const randomPhrase = filtered[randomIndex];
+    console.log('Frase aleatoria:', randomPhrase);
+    // TODO: Implementar modal de frase aleatoria
+    alert(`Frase aleatoria:\n\n"${randomPhrase.text}"\n\n${randomPhrase.author ? `— ${randomPhrase.author}` : ''}`);
+  };
+
+  const getReviewButtonText = () => {
+    if (filtered.length === 0) return 'Repasar';
+    
+    let text = 'Repasar';
+    if (selectedCategory !== 'all') {
+      const cat = mockPhraseCategories.find(c => c.id === selectedCategory);
+      if (selectedSubcategory !== 'all') {
+        const sub = cat?.subcategories.find(s => s.id === selectedSubcategory);
+        text = `Repasar ${sub?.name || ''}`;
+      } else {
+        text = `Repasar ${cat?.name || ''}`;
+      }
+    } else {
+      text = 'Repasar Todas';
+    }
+    return `${text} (${filtered.length})`;
   };
 
   const handleCreatePhrase = () => {
@@ -86,9 +121,21 @@ export default function Phrases() {
             <Settings className="h-4 w-4" />
             Categorías
           </button>
-          <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors">
+          <button
+            onClick={handleRandomPhrase}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Dices className="h-4 w-4" />
             Aleatoria
+          </button>
+          <button
+            onClick={handleReviewAll}
+            disabled={filtered.length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className="h-4 w-4" />
+            {getReviewButtonText()}
           </button>
           <button
             onClick={handleCreatePhrase}
@@ -172,6 +219,15 @@ export default function Phrases() {
         phrase={editingPhrase}
         categories={mockPhraseCategories}
         onSave={handleSavePhrase}
+      />
+
+      {/* Review Modal */}
+      <ReviewModal
+        open={showReviewModal}
+        onOpenChange={setShowReviewModal}
+        phrases={filtered}
+        categories={mockPhraseCategories}
+        onReview={handleReview}
       />
     </div>
   );
