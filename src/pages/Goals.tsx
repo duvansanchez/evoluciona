@@ -260,20 +260,20 @@ export default function Goals() {
       // Update existing goal in backend
       const updatePayload: Record<string, unknown> = {
         titulo: data.title,
-        descripcion: data.description || undefined,
-        prioridad: data.priority,
-        categoria: data.category,
-        objetivo_padre_id: data.parentGoalId || undefined,
-        fecha_inicio: data.startDate || undefined,
-        fecha_fin: data.endDate || undefined,
-        horas_estimadas: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
-        minutos_estimados: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
-        recompensa: data.reward || undefined,
-        parte_dia: data.dayPart === 'none' ? undefined : data.dayPart,
-        recurrente: data.recurring,
-        es_padre: data.isParent,
-        programado_para: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
       };
+      
+      if (data.description) updatePayload.descripcion = data.description;
+      if (data.category) updatePayload.categoria = data.category;
+      if (data.priority) updatePayload.prioridad = data.priority;
+      if (data.recurring !== undefined) updatePayload.recurrente = data.recurring;
+      if (data.dayPart && data.dayPart !== 'none') updatePayload.parte_dia = data.dayPart;
+      if (data.estimatedHours) updatePayload.horas_estimadas = parseInt(data.estimatedHours);
+      if (data.reward) updatePayload.recompensa = data.reward;
+      if (data.isParent !== undefined) updatePayload.es_padre = data.isParent;
+      if (data.parentGoalId) updatePayload.objetivo_padre_id = data.parentGoalId;
+      if (data.startDate) updatePayload.fecha_inicio = data.startDate;
+      if (data.endDate) updatePayload.fecha_fin = data.endDate;
+      if (data.scheduledType === 'specific' && data.scheduledDate) updatePayload.programado_para = data.scheduledDate;
       
       try {
         await goalsAPI.updateGoal(editingGoal.id, updatePayload);
@@ -312,20 +312,20 @@ export default function Goals() {
       // Create new goal in backend
       const createPayload: Record<string, unknown> = {
         titulo: data.title,
-        descripcion: data.description || undefined,
-        categoria: data.category,
-        prioridad: data.priority,
-        recurrente: data.recurring,
-        parte_dia: data.dayPart === 'none' ? undefined : data.dayPart,
-        horas_estimadas: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
-        minutos_estimados: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
-        recompensa: data.reward || undefined,
-        es_padre: data.isParent,
-        objetivo_padre_id: data.parentGoalId || undefined,
-        fecha_inicio: data.startDate || undefined,
-        fecha_fin: data.endDate || undefined,
-        programado_para: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
       };
+      
+      if (data.description) createPayload.descripcion = data.description;
+      if (data.category) createPayload.categoria = data.category;
+      if (data.priority) createPayload.prioridad = data.priority;
+      if (data.recurring !== undefined) createPayload.recurrente = data.recurring;
+      if (data.dayPart && data.dayPart !== 'none') createPayload.parte_dia = data.dayPart;
+      if (data.estimatedHours) createPayload.horas_estimadas = parseInt(data.estimatedHours);
+      if (data.reward) createPayload.recompensa = data.reward;
+      if (data.isParent !== undefined) createPayload.es_padre = data.isParent;
+      if (data.parentGoalId) createPayload.objetivo_padre_id = data.parentGoalId;
+      if (data.startDate) createPayload.fecha_inicio = data.startDate;
+      if (data.endDate) createPayload.fecha_fin = data.endDate;
+      if (data.scheduledType === 'specific' && data.scheduledDate) createPayload.programado_para = data.scheduledDate;
       
       try {
         const createdGoal = await goalsAPI.createGoal(createPayload);
