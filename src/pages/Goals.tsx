@@ -259,7 +259,7 @@ export default function Goals() {
     if (editingGoal) {
       // Update existing goal in backend
       const updatePayload: Record<string, unknown> = {
-        titulo: data.title,
+        title: data.title,
       };
       
       if (data.description) updatePayload.descripcion = data.description;
@@ -311,7 +311,7 @@ export default function Goals() {
     } else {
       // Create new goal in backend
       const createPayload: Record<string, unknown> = {
-        titulo: data.title,
+        title: data.title,
       };
       
       if (data.description) createPayload.descripcion = data.description;
