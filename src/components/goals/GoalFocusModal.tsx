@@ -126,9 +126,9 @@ export default function GoalFocusModal({
   const totalCount = subGoals.length;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[hsl(215,35%,8%)] animate-fade-in overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-background animate-fade-in overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[hsl(210,30%,18%)] bg-[hsl(215,35%,10%)]">
+      <div className="sticky top-0 z-10 border-b border-border bg-card">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -136,13 +136,13 @@ export default function GoalFocusModal({
                 <Focus className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-sm font-semibold text-white">Modo Focus</h2>
-                <p className="text-xs text-[hsl(210,15%,50%)]">Concéntrate en este objetivo</p>
+                <h2 className="text-sm font-semibold text-foreground">Modo Focus</h2>
+                <p className="text-xs text-muted-foreground">Concéntrate en este objetivo</p>
               </div>
             </div>
             <button
               onClick={handleClose}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-[hsl(210,20%,70%)] hover:bg-[hsl(210,25%,16%)] transition-colors"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
             >
               <X className="h-4 w-4" />
               Cerrar
@@ -155,9 +155,9 @@ export default function GoalFocusModal({
       <div className="container mx-auto px-6 py-8 max-w-5xl">
         {/* Goal Title */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-white mb-2">{goal.title}</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2">{goal.title}</h1>
           {goal.description && (
-            <p className="text-[hsl(210,15%,60%)]">{goal.description}</p>
+            <p className="text-muted-foreground">{goal.description}</p>
           )}
           <div className="flex items-center gap-2 mt-3">
             <span className={`px-2 py-1 rounded-md text-xs font-semibold ${
@@ -190,9 +190,9 @@ export default function GoalFocusModal({
         </div>
 
         {/* Timer */}
-        <div className="mb-8 rounded-2xl bg-gradient-to-br from-[hsl(210,25%,14%)] to-[hsl(210,25%,12%)] border border-[hsl(210,30%,18%)] p-8 overflow-hidden">
+        <div className="mb-8 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/20 p-12 overflow-hidden">
           <div className="text-center">
-            <div className="text-6xl font-mono font-bold text-primary mb-6 tracking-tight" style={{ wordBreak: 'break-all', overflowWrap: 'break-word' }}>
+            <div className="text-6xl font-mono font-bold text-foreground mb-6 tracking-tight" style={{ wordBreak: 'break-all', overflowWrap: 'break-word' }}>
               {formatTime(seconds)}
             </div>
             <div className="flex flex-wrap items-center justify-center gap-3">
@@ -216,7 +216,7 @@ export default function GoalFocusModal({
               <button
                 onClick={handleReset}
                 disabled={seconds === 0}
-                className="flex items-center gap-2 rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-6 py-3 text-base font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 rounded-xl border border-border bg-background px-6 py-3 text-base font-medium text-foreground hover:bg-accent transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <RotateCcw className="h-5 w-5" />
                 Reiniciar
@@ -229,7 +229,7 @@ export default function GoalFocusModal({
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold text-white">≡ Progreso del objetivo</h3>
+              <h3 className="text-lg font-semibold text-foreground">≡ Progreso del objetivo</h3>
               <span className="px-2 py-1 rounded-md bg-primary/20 text-primary text-sm font-bold">
                 {completedCount}/{totalCount}
               </span>
@@ -237,9 +237,9 @@ export default function GoalFocusModal({
           </div>
 
           {/* Progress bar */}
-          <div className="h-2 w-full rounded-full bg-[hsl(210,25%,14%)] overflow-hidden mb-4">
+          <div className="h-2 w-full rounded-full bg-muted overflow-hidden mb-4">
             <div
-              className="h-full rounded-full bg-green-500 transition-all duration-300"
+              className="h-full rounded-full bg-primary transition-all duration-300"
               style={{ width: totalCount > 0 ? `${(completedCount / totalCount) * 100}%` : '0%' }}
             />
           </div>
@@ -249,14 +249,14 @@ export default function GoalFocusModal({
             {subGoals.map(sub => (
               <div
                 key={sub.id}
-                className="flex items-center gap-3 p-3 rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,11%)] hover:border-primary/30 transition-colors group"
+                className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors group"
               >
                 <button
                   onClick={() => toggleSubGoal(sub.id)}
                   className={`h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all ${
                     sub.completed
                       ? 'bg-primary border-primary'
-                      : 'border-[hsl(210,15%,35%)] hover:border-primary'
+                      : 'border-input hover:border-primary'
                   }`}
                 >
                   {sub.completed && (
@@ -265,11 +265,11 @@ export default function GoalFocusModal({
                     </svg>
                   )}
                 </button>
-                <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-[hsl(210,15%,40%)]' : 'text-[hsl(210,20%,85%)]'}`}>
+                <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
                   {sub.title}
                 </span>
                 {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
-                  <span className="text-xs text-[hsl(210,15%,50%)]">
+                  <span className="text-xs text-muted-foreground">
                     {Math.floor(sub.focusTimeSeconds / 60)}m
                   </span>
                 )}
@@ -287,7 +287,7 @@ export default function GoalFocusModal({
           </div>
 
           {totalCount === 0 && (
-            <div className="text-center py-8 text-[hsl(210,15%,50%)]">
+            <div className="text-center py-8 text-muted-foreground">
               <p className="text-sm">No hay subobjetivos. Edita el objetivo para agregar algunos.</p>
             </div>
           )}
@@ -295,26 +295,26 @@ export default function GoalFocusModal({
 
         {/* Notes Section */}
         <div className="mb-8">
-          <label className="block text-sm font-semibold text-white mb-3">
+          <label className="block text-sm font-semibold text-foreground mb-3">
             📝 Notas de la sesión
           </label>
           <textarea
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Anota tu progreso, ideas o reflexiones sobre este objetivo..."
-            className="w-full min-h-[150px] rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,11%)] px-4 py-3 text-sm text-[hsl(210,20%,85%)] placeholder:text-[hsl(210,15%,40%)] focus:outline-none focus:ring-2 focus:ring-primary resize-y"
+            className="w-full min-h-[150px] rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-y"
             maxLength={2000}
           />
         </div>
       </div>
 
       {/* Bottom Actions */}
-      <div className="sticky bottom-0 z-10 border-t border-[hsl(210,30%,18%)] bg-[hsl(215,35%,10%)]/95 backdrop-blur-sm">
+      <div className="sticky bottom-0 z-10 border-t border-border bg-background/95 backdrop-blur-sm">
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between gap-3 max-w-5xl mx-auto">
             <button
               onClick={handleClose}
-              className="flex items-center gap-2 rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-5 py-2.5 text-sm font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-colors"
+              className="flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
             >
               <X className="h-4 w-4" />
               Salir del Focus
@@ -322,12 +322,12 @@ export default function GoalFocusModal({
             
             <div className="flex items-center gap-3">
               <button
-                className="rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-5 py-2.5 text-sm font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-colors"
+                className="rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
               >
                 Desmarcar de hoy
               </button>
               <button
-                className="rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-5 py-2.5 text-sm font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-colors"
+                className="rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-medium text-foreground hover:bg-accent transition-colors"
               >
                 Marcar como hoy
               </button>
