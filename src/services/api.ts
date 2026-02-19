@@ -23,6 +23,41 @@ export const goalsAPI = {
     return response.json() as Promise<PaginatedResponse<any>>;
   },
   
+  createGoal: async (goalData: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/goals`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(goalData),
+    });
+    if (!response.ok) throw new Error('Error creating goal');
+    return response.json();
+  },
+  
+  updateGoal: async (goalId: number | string, updates: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
+    if (!response.ok) throw new Error('Error updating goal');
+    return response.json();
+  },
+  
+  deleteGoal: async (goalId: number | string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!response.ok) throw new Error('Error deleting goal');
+    return response.json();
+  },
+  
   getSubGoals: async (goalId: number | string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/subgoals`);
     if (!response.ok) throw new Error('Error fetching subgoals');

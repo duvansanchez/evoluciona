@@ -124,7 +124,7 @@ const mapBackendGoal = (item: any): Goal => ({
 });
 
 export default function Goals() {
-  const [activeTab, setActiveTab] = useState<GoalCategory | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<GoalCategory | 'all'>('daily');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,8 +227,19 @@ export default function Goals() {
 
   const completedOf = (arr: typeof goals) => `${arr.filter(g => g.completed).length}/${arr.length}`;
 
-  const handleToggle = (id: string) => {
-    setGoals(prev => prev.map(g => g.id === id ? { ...g, completed: !g.completed, completedAt: !g.completed ? new Date().toISOString() : undefined } : g));
+  const handleToggle = async (id: string) => {
+    const goal = goals.find(g => g.id === id);
+    if (!goal) return;
+    
+    const newCompleted = !goal.completed;
+    const completedAt = newCompleted ? new Date().toISOString() : undefined;
+    
+    try {
+      await goalsAPI.updateGoal(id, { completado: newCompleted });
+      setGoals(prev => prev.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g));
+    } catch (error) {
+      console.error('Error updating goal:', error);
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -244,26 +255,49 @@ export default function Goals() {
     setModalOpen(true);
   };
 
-  const handleSave = (data: any) => {
+  const handleSave = async (data: any) => {
     if (editingGoal) {
-      setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
-        ...g,
-        title: data.title,
-        description: data.description || undefined,
-        priority: data.priority,
-        category: data.category,
-        parentGoalId: data.parentGoalId || undefined,
-        startDate: data.startDate || undefined,
-        endDate: data.endDate || undefined,
-        estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
-        estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
-        reward: data.reward || undefined,
-        dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
-        recurring: data.recurring,
-        isParent: data.isParent,
-        scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
-        subGoals: data.subGoals,
-      } : g));
+      // Update existing goal in backend
+      const updatePayload: Record<string, unknown> = {
+        titulo: data.title,
+        descripcion: data.description || undefined,
+        prioridad: data.priority,
+        categoria: data.category,
+        objetivo_padre_id: data.parentGoalId || undefined,
+        fecha_inicio: data.startDate || undefined,
+        fecha_fin: data.endDate || undefined,
+        horas_estimadas: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+        minutos_estimados: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+        recompensa: data.reward || undefined,
+        parte_dia: data.dayPart === 'none' ? undefined : data.dayPart,
+        recurrente: data.recurring,
+        es_padre: data.isParent,
+        programado_para: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+      };
+      
+      try {
+        await goalsAPI.updateGoal(editingGoal.id, updatePayload);
+        setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
+          ...g,
+          title: data.title,
+          description: data.description || undefined,
+          priority: data.priority,
+          category: data.category,
+          parentGoalId: data.parentGoalId || undefined,
+          startDate: data.startDate || undefined,
+          endDate: data.endDate || undefined,
+          estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+          estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+          reward: data.reward || undefined,
+          dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
+          recurring: data.recurring,
+          isParent: data.isParent,
+          scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+          subGoals: data.subGoals,
+        } : g));
+      } catch (error) {
+        console.error('Error updating goal:', error);
+      }
 
       data.subGoals.forEach((sub: SubGoal) => {
         if (sub.id.startsWith('new-')) return;
@@ -275,28 +309,51 @@ export default function Goals() {
         });
       });
     } else {
-      const newGoal: Goal = {
-        id: `new-${Date.now()}`,
-        title: data.title,
-        description: data.description || undefined,
-        category: data.category,
-        priority: data.priority,
-        recurring: data.recurring,
-        dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
-        estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
-        estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
-        reward: data.reward || undefined,
-        isParent: data.isParent,
-        parentGoalId: data.parentGoalId || undefined,
-        startDate: data.startDate || undefined,
-        endDate: data.endDate || undefined,
-        subGoals: data.subGoals,
-        completed: false,
-        skipped: false,
-        createdAt: new Date().toISOString(),
-        scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+      // Create new goal in backend
+      const createPayload: Record<string, unknown> = {
+        titulo: data.title,
+        descripcion: data.description || undefined,
+        categoria: data.category,
+        prioridad: data.priority,
+        recurrente: data.recurring,
+        parte_dia: data.dayPart === 'none' ? undefined : data.dayPart,
+        horas_estimadas: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+        minutos_estimados: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+        recompensa: data.reward || undefined,
+        es_padre: data.isParent,
+        objetivo_padre_id: data.parentGoalId || undefined,
+        fecha_inicio: data.startDate || undefined,
+        fecha_fin: data.endDate || undefined,
+        programado_para: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
       };
-      setGoals(prev => [newGoal, ...prev]);
+      
+      try {
+        const createdGoal = await goalsAPI.createGoal(createPayload);
+        const newGoal: Goal = {
+          id: createdGoal.id,
+          title: data.title,
+          description: data.description || undefined,
+          category: data.category,
+          priority: data.priority,
+          recurring: data.recurring,
+          dayPart: data.dayPart === 'none' ? undefined : data.dayPart,
+          estimatedHours: data.estimatedHours ? parseInt(data.estimatedHours) : undefined,
+          estimatedMinutes: data.estimatedMinutes ? parseInt(data.estimatedMinutes) : undefined,
+          reward: data.reward || undefined,
+          isParent: data.isParent,
+          parentGoalId: data.parentGoalId || undefined,
+          startDate: data.startDate || undefined,
+          endDate: data.endDate || undefined,
+          subGoals: data.subGoals,
+          completed: false,
+          skipped: false,
+          createdAt: createdGoal.fecha_creacion || new Date().toISOString(),
+          scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
+        };
+        setGoals(prev => [newGoal, ...prev]);
+      } catch (error) {
+        console.error('Error creating goal:', error);
+      }
     }
   };
 
@@ -317,6 +374,15 @@ export default function Goals() {
     setFocusSubGoal(subGoal);
     setGoalFocusOpen(false);
     setFocusModalOpen(true);
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    try {
+      await goalsAPI.deleteGoal(goalId);
+      setGoals(prev => prev.filter(g => g.id !== goalId));
+    } catch (error) {
+      console.error('Error deleting goal:', error);
+    }
   };
 
   const handleFocusSubGoal = (goalId: string, subGoalId: string) => {
@@ -509,6 +575,7 @@ export default function Goals() {
             onToggle={handleToggle} 
             onEdit={handleEdit}
             onFocusGoal={handleOpenGoalFocus}
+            onDelete={handleDeleteGoal}
           />
         ))}
       </div>

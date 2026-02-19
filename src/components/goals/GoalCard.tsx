@@ -27,9 +27,10 @@ interface GoalCardProps {
   onEdit?: (id: string) => void;
   onToggle?: (id: string) => void;
   onFocusGoal?: (goalId: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-export default function GoalCard({ goal, onToggle, onEdit, onFocusGoal }: GoalCardProps) {
+export default function GoalCard({ goal, onToggle, onEdit, onFocusGoal, onDelete }: GoalCardProps) {
   const [expanded, setExpanded] = useState(false);
   const completedSubs = goal.subGoals.filter(s => s.completed).length;
 
@@ -69,7 +70,7 @@ export default function GoalCard({ goal, onToggle, onEdit, onFocusGoal }: GoalCa
                 </button>
               )}
               <button onClick={() => onEdit?.(goal.id)} className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
-              <button className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+              <button onClick={() => onDelete?.(goal.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
             </div>
           </div>
 
