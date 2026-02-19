@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api", tags=["questions"])
 def list_questions(
     category: str = Query(None),
     active: bool = Query(None),
+    frequency: str = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -32,6 +33,7 @@ def list_questions(
         db,
         category=category,
         active=active,
+        frequency=frequency,
         page=page,
         page_size=page_size
     )

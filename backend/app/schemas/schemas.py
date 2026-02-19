@@ -203,6 +203,7 @@ class QuestionBase(BaseModel):
     """Base para pregunta."""
     text: str = Field(..., min_length=1)
     type: str = Field(...)
+    options: Optional[str] = None
     descripcion: Optional[str] = None
     categoria: Optional[str] = None
     is_required: Optional[bool] = False
@@ -218,6 +219,7 @@ class QuestionUpdate(BaseModel):
     """Actualizar pregunta."""
     text: Optional[str] = None
     type: Optional[str] = None
+    options: Optional[str] = None
     descripcion: Optional[str] = None
     categoria: Optional[str] = None
     is_required: Optional[bool] = None

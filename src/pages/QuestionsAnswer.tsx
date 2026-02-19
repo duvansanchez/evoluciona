@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, Save } from 'lucide-react';
-import { mockQuestions } from '@/data/mockData';
-import type { Question, QuestionResponse } from '@/types';
+import { questionsAPI } from '@/services/api';
+import type { Question } from '@/types';
 
 export default function QuestionsAnswer() {
-  const activeQuestions = mockQuestions.filter(q => q.active).sort((a, b) => a.order - b.order);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Record<string, string | string[]>>({});
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const activeQuestions = questions.filter(q => q.active).sort((a, b) => a.order - b.order);
 
   const today = new Date().toLocaleDateString('es-ES', { 
     weekday: 'long', 
@@ -19,16 +22,89 @@ export default function QuestionsAnswer() {
   const totalCount = activeQuestions.length;
   const progress = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
 
+  const isDailyQuestion = (item: any): boolean => {
+    const frequency = (item?.frecuencia ?? '').toString().trim().toLowerCase();
+    if (!frequency) return true;
+    return frequency === 'diaria' || frequency === 'diario' || frequency === 'daily';
+  };
+
+  useEffect(() => {
+    const loadQuestions = async () => {
+      try {
+        setLoading(true);
+        const response = await questionsAPI.getQuestions(1, 100, undefined, true, 'diaria');
+        const mapped = response.items.filter(isDailyQuestion).map((item: any): Question => {
+          let parsedOptions = [] as Question['options'];
+          if (item.options) {
+            try {
+              parsedOptions = JSON.parse(item.options);
+            } catch {
+              parsedOptions = [];
+            }
+          }
+
+          return {
+            id: item.id.toString(),
+            title: item.text,
+            description: item.descripcion || undefined,
+            type: (item.type || 'text') as any,
+            category: item.categoria || 'general',
+            required: item.is_required || false,
+            active: item.active,
+            createdAt: item.created_at,
+            order: 0,
+            options: parsedOptions,
+          };
+        });
+        setQuestions(mapped);
+
+        const todayKey = new Date().toISOString().split('T')[0];
+        const session = await questionsAPI.getDailySession(todayKey);
+        const initialResponses: Record<string, string | string[]> = {};
+        session.responses?.forEach((r: any) => {
+          if (!r.question_id) return;
+          const raw = r.response ?? '';
+          if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+            try {
+              initialResponses[r.question_id.toString()] = JSON.parse(raw);
+              return;
+            } catch {
+              // Fallback to raw string
+            }
+          }
+          initialResponses[r.question_id.toString()] = raw;
+        });
+        setResponses(initialResponses);
+      } catch (error) {
+        console.error('Error loading questions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadQuestions();
+  }, []);
+
   const handleResponse = (questionId: string, value: string | string[]) => {
     setResponses(prev => ({ ...prev, [questionId]: value }));
     setSaved(false);
   };
 
-  const handleSave = () => {
-    // Aquí se guardarían las respuestas en el backend
-    console.log('Guardando respuestas:', responses);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+  const handleSave = async () => {
+    try {
+      const todayKey = new Date().toISOString().split('T')[0];
+      const payload = {
+        responses: Object.entries(responses).map(([questionId, value]) => ({
+          question_id: questionId,
+          response: Array.isArray(value) ? JSON.stringify(value) : value ?? '',
+        })),
+      };
+      await questionsAPI.saveDailyResponses(todayKey, payload);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (error) {
+      console.error('Error saving responses:', error);
+    }
   };
 
   return (
@@ -60,15 +136,19 @@ export default function QuestionsAnswer() {
 
         {/* Questions */}
         <div className="space-y-4">
-          {activeQuestions.map((question, index) => (
-            <QuestionCard
-              key={question.id}
-              question={question}
-              index={index + 1}
-              value={responses[question.id]}
-              onChange={(value) => handleResponse(question.id, value)}
-            />
-          ))}
+          {loading ? (
+            <div className="text-sm text-muted-foreground">Cargando preguntas...</div>
+          ) : (
+            activeQuestions.map((question, index) => (
+              <QuestionCard
+                key={question.id}
+                question={question}
+                index={index + 1}
+                value={responses[question.id]}
+                onChange={(value) => handleResponse(question.id, value)}
+              />
+            ))
+          )}
         </div>
 
         {/* Save button */}

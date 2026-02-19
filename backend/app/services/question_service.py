@@ -22,7 +22,8 @@ class QuestionService:
             type=question.type,
             categoria=question.categoria,
             is_required=question.is_required,
-            activa=question.active,
+            active=question.active,
+            options=question.options,
         )
         db.add(db_question)
         db.commit()
@@ -34,6 +35,7 @@ class QuestionService:
         db: Session,
         category: Optional[str] = None,
         active: Optional[bool] = None,
+        frequency: Optional[str] = None,
         page: int = 1,
         page_size: int = 10
     ) -> Tuple[List[Question], int]:
@@ -44,6 +46,8 @@ class QuestionService:
             query = query.filter(Question.categoria == category)
         if active is not None:
             query = query.filter(Question.active == active)
+        if frequency:
+            query = query.filter(Question.frecuencia == frequency)
         
         total = query.count()
         questions = query.order_by(Question.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
@@ -70,6 +74,8 @@ class QuestionService:
                 setattr(db_question, "descripcion", value)
             elif field == "type":
                 setattr(db_question, "type", value)
+            elif field == "options":
+                setattr(db_question, "options", value)
             elif field == "categoria":
                 setattr(db_question, "categoria", value)
             elif field == "is_required":

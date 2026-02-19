@@ -1,15 +1,68 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Search, Edit2, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
-import { mockQuestions } from '@/data/mockData';
+import { questionsAPI } from '@/services/api';
 import QuestionModal from '@/components/questions/QuestionModal';
 import type { Question, QuestionCategory } from '@/types';
 
 export default function QuestionsAdmin() {
-  const [questions, setQuestions] = useState(mockQuestions);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<QuestionCategory | 'all'>('all');
   const [showModal, setShowModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+
+  const mapBackendQuestion = (item: any): Question => {
+    let parsedOptions = [] as Question['options'];
+    if (item.options) {
+      try {
+        parsedOptions = JSON.parse(item.options);
+      } catch {
+        parsedOptions = [];
+      }
+    }
+
+    return {
+    id: item.id.toString(),
+    title: item.text,
+    description: item.descripcion || undefined,
+    type: (item.type || 'text') as any,
+    category: item.categoria || 'general',
+    required: item.is_required || false,
+    active: item.active,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at || undefined,
+    order: item.order ?? 0,
+      options: parsedOptions,
+    };
+  };
+
+  useEffect(() => {
+    const loadQuestions = async () => {
+      try {
+        setLoading(true);
+        const firstPage = await questionsAPI.getQuestions(1, 100, undefined, undefined, 'diaria');
+        let allItems = [...firstPage.items];
+
+        if (firstPage.pages > 1) {
+          const pagePromises = [];
+          for (let page = 2; page <= firstPage.pages; page++) {
+            pagePromises.push(questionsAPI.getQuestions(page, 100, undefined, undefined, 'diaria'));
+          }
+          const restPages = await Promise.all(pagePromises);
+          allItems = [...allItems, ...restPages.flatMap(p => p.items)];
+        }
+
+        setQuestions(allItems.map(mapBackendQuestion));
+      } catch (error) {
+        console.error('Error loading questions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadQuestions();
+  }, []);
 
   const filteredQuestions = questions
     .filter(q => {
@@ -18,17 +71,42 @@ export default function QuestionsAdmin() {
       const matchesCategory = filterCategory === 'all' || q.category === filterCategory;
       return matchesSearch && matchesCategory;
     })
-    .sort((a, b) => a.order - b.order);
+    .sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return (a.order - b.order) || (a.createdAt || '').localeCompare(b.createdAt || '');
+    });
 
-  const handleToggleActive = (id: string) => {
-    setQuestions(prev => prev.map(q => 
-      q.id === id ? { ...q, active: !q.active } : q
+  const handleToggleActive = async (id: string) => {
+    const target = questions.find(q => q.id === id);
+    if (!target) return;
+
+    const nextActive = !target.active;
+    setQuestions(prev => prev.map(q =>
+      q.id === id ? { ...q, active: nextActive } : q
     ));
+
+    try {
+      const payload = {
+        active: nextActive,
+      };
+      const updated = await questionsAPI.updateQuestion(id, payload);
+      setQuestions(prev => prev.map(q => q.id === id ? mapBackendQuestion(updated) : q));
+    } catch (error) {
+      console.error('Error updating question:', error);
+      setQuestions(prev => prev.map(q => q.id === id ? target : q));
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('¿Estás seguro de eliminar esta pregunta?')) {
+      const prevQuestions = questions;
       setQuestions(prev => prev.filter(q => q.id !== id));
+      try {
+        await questionsAPI.deleteQuestion(id);
+      } catch (error) {
+        console.error('Error deleting question:', error);
+        setQuestions(prevQuestions);
+      }
     }
   };
 
@@ -42,27 +120,31 @@ export default function QuestionsAdmin() {
     setShowModal(true);
   };
 
-  const handleSave = (formData: any) => {
+  const handleSave = async (formData: any) => {
+    const payload = {
+      text: formData.title,
+      descripcion: formData.description || null,
+      type: formData.type,
+      categoria: formData.category,
+      is_required: formData.required,
+      active: formData.active,
+      options: formData.options?.length ? JSON.stringify(formData.options) : null,
+    };
+
     if (editingQuestion) {
-      // Editar pregunta existente
-      setQuestions(prev => prev.map(q => 
-        q.id === editingQuestion.id 
-          ? { 
-              ...q, 
-              ...formData,
-              updatedAt: new Date().toISOString(),
-            }
-          : q
-      ));
+      try {
+        const updated = await questionsAPI.updateQuestion(editingQuestion.id, payload);
+        setQuestions(prev => prev.map(q => q.id === editingQuestion.id ? mapBackendQuestion(updated) : q));
+      } catch (error) {
+        console.error('Error updating question:', error);
+      }
     } else {
-      // Crear nueva pregunta
-      const newQuestion: Question = {
-        id: `q${Date.now()}`,
-        ...formData,
-        order: questions.length + 1,
-        createdAt: new Date().toISOString(),
-      };
-      setQuestions(prev => [...prev, newQuestion]);
+      try {
+        const created = await questionsAPI.createQuestion(payload);
+        setQuestions(prev => [...prev, mapBackendQuestion(created)]);
+      } catch (error) {
+        console.error('Error creating question:', error);
+      }
     }
   };
 
@@ -131,7 +213,11 @@ export default function QuestionsAdmin() {
 
         {/* Questions list */}
         <div className="space-y-3">
-          {filteredQuestions.length === 0 ? (
+          {loading ? (
+            <div className="bg-card rounded-xl p-12 border border-border text-center">
+              <p className="text-muted-foreground">Cargando preguntas...</p>
+            </div>
+          ) : filteredQuestions.length === 0 ? (
             <div className="bg-card rounded-xl p-12 border border-border text-center">
               <p className="text-muted-foreground">No se encontraron preguntas</p>
             </div>

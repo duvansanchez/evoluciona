@@ -5,32 +5,55 @@ import { questionsAPI } from '@/services/api';
 import type { Question } from '@/types';
 
 // Mapear datos del backend al formato frontend
-const mapBackendQuestion = (item: any): Question => ({
-  id: item.id.toString(),
-  title: item.text,
-  description: item.descripcion || undefined,
-  type: (item.type || 'text') as any,
-  category: item.categoria || 'general',
-  required: item.is_required || false,
-  active: item.active,
-  createdAt: item.created_at,
-  order: 0,
-  options: item.options ? JSON.parse(item.options) : [],
-});
+const mapBackendQuestion = (item: any): Question => {
+  let parsedOptions = [] as Question['options'];
+  if (item.options) {
+    try {
+      parsedOptions = JSON.parse(item.options);
+    } catch {
+      parsedOptions = [];
+    }
+  }
+
+  return {
+    id: item.id.toString(),
+    title: item.text,
+    description: item.descripcion || undefined,
+    type: (item.type || 'text') as any,
+    category: item.categoria || 'general',
+    required: item.is_required || false,
+    active: item.active,
+    createdAt: item.created_at,
+    order: 0,
+    options: parsedOptions,
+  };
+};
+
+const isDailyQuestion = (item: any): boolean => {
+  const frequency = (item?.frecuencia ?? '').toString().trim().toLowerCase();
+  if (!frequency) return true;
+  return frequency === 'diaria' || frequency === 'diario' || frequency === 'daily';
+};
 
 export default function Questions() {
   const navigate = useNavigate();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dailySession, setDailySession] = useState<{ answered_questions: number; total_questions: number } | null>(null);
 
   // Cargar preguntas del backend
   useEffect(() => {
     const loadQuestions = async () => {
       try {
         setLoading(true);
-        const response = await questionsAPI.getQuestions(1, 100);
-        const mappedQuestions = response.items.map(mapBackendQuestion);
+        const response = await questionsAPI.getQuestions(1, 100, undefined, true, 'diaria');
+        const dailyItems = response.items.filter(isDailyQuestion);
+        const mappedQuestions = dailyItems.map(mapBackendQuestion);
         setQuestions(mappedQuestions);
+
+        const todayKey = new Date().toISOString().split('T')[0];
+        const session = await questionsAPI.getDailySession(todayKey);
+        setDailySession(session);
       } catch (error) {
         console.error('Error loading questions:', error);
       } finally {
@@ -41,14 +64,11 @@ export default function Questions() {
     loadQuestions();
   }, []);
 
-  const { mockQuestionResponses } = require('@/data/mockData');
-  
   const today = new Date().toISOString().split('T')[0];
-  const todayResponses = mockQuestionResponses.filter((r: any) => r.date === today);
   const activeQuestions = questions.filter(q => q.active);
   
-  const answeredCount = todayResponses.length;
-  const totalCount = activeQuestions.length;
+  const answeredCount = dailySession?.answered_questions ?? 0;
+  const totalCount = dailySession?.total_questions ?? activeQuestions.length;
   const progress = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
   const isComplete = answeredCount === totalCount && totalCount > 0;
 

@@ -72,13 +72,59 @@ export const phrasesAPI = {
  * Questions API
  */
 export const questionsAPI = {
-  getQuestions: async (page = 1, page_size = 50, category?: string) => {
+  getQuestions: async (page = 1, page_size = 50, category?: string, active?: boolean, frequency?: string) => {
     let url = `${API_BASE_URL}/questions?page=${page}&page_size=${page_size}`;
     if (category) url += `&category=${category}`;
+    if (typeof active === 'boolean') url += `&active=${active}`;
+    if (frequency) url += `&frequency=${frequency}`;
     
     const response = await fetch(url);
     if (!response.ok) throw new Error('Error fetching questions');
     return response.json() as Promise<PaginatedResponse<any>>;
+  },
+  createQuestion: async (payload: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/questions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Error creating question');
+    return response.json();
+  },
+  updateQuestion: async (questionId: number | string, payload: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/questions/${questionId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Error updating question');
+    return response.json();
+  },
+  deleteQuestion: async (questionId: number | string) => {
+    const response = await fetch(`${API_BASE_URL}/questions/${questionId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error deleting question');
+  },
+  getDailySession: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/daily-sessions/${date}`);
+    if (!response.ok) throw new Error('Error fetching daily session');
+    return response.json();
+  },
+  saveDailyResponses: async (date: string, payload: { responses: { question_id: string; response: string }[] }) => {
+    const response = await fetch(`${API_BASE_URL}/daily-sessions/${date}/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Error saving daily responses');
+    return response.json();
   },
 };
 
