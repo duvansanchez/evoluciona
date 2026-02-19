@@ -372,38 +372,36 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
 
           {/* Timer Display */}
           <div className="mb-8">
-            <div className="relative rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 p-6 sm:p-8 md:p-12 border border-blue-500/20">
+            <div className="relative rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-500/10 p-12 border border-blue-500/20">
               <div className="text-center">
-                <div className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-mono font-bold text-foreground mb-4 tracking-tight break-all max-w-full overflow-hidden">
+                <div className="text-7xl font-mono font-bold text-foreground mb-4 tracking-tight" style={{ wordWrap: 'break-word', maxWidth: '100%' }}>
                   {formatTime(seconds)}
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+                <div className="flex flex-wrap items-center justify-center gap-3">
                   {timerState === 'idle' || timerState === 'paused' ? (
                     <button
                       onClick={handleStart}
-                      className="flex items-center gap-2 rounded-xl bg-green-600 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-semibold text-white hover:bg-green-700 transition-all shadow-lg hover:scale-105"
+                      className="flex items-center gap-2 rounded-xl bg-green-600 px-8 py-4 text-lg font-semibold text-white hover:bg-green-700 transition-all shadow-lg hover:scale-105"
                     >
-                      <Play className="h-5 w-5 sm:h-6 sm:w-6" />
-                      <span className="hidden sm:inline">{timerState === 'idle' ? 'Iniciar' : 'Reanudar'}</span>
-                      <span className="sm:hidden">{timerState === 'idle' ? 'Play' : 'Resume'}</span>
+                      <Play className="h-6 w-6" />
+                      {timerState === 'idle' ? 'Iniciar' : 'Reanudar'}
                     </button>
                   ) : (
                     <button
                       onClick={handlePause}
-                      className="flex items-center gap-2 rounded-xl bg-amber-600 px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-semibold text-white hover:bg-amber-700 transition-all shadow-lg hover:scale-105"
+                      className="flex items-center gap-2 rounded-xl bg-amber-600 px-8 py-4 text-lg font-semibold text-white hover:bg-amber-700 transition-all shadow-lg hover:scale-105"
                     >
-                      <Pause className="h-5 w-5 sm:h-6 sm:w-6" />
-                      <span className="hidden sm:inline">Pausar</span>
-                      <span className="sm:hidden">Pause</span>
+                      <Pause className="h-6 w-6" />
+                      Pausar
                     </button>
                   )}
                   <button
                     onClick={handleReset}
                     disabled={seconds === 0}
-                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 sm:px-6 py-3 sm:py-4 text-base sm:text-lg font-medium text-foreground hover:bg-accent transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 rounded-xl border border-border bg-background px-6 py-4 text-lg font-medium text-foreground hover:bg-accent transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    <RotateCcw className="h-4 w-4 sm:h-5 sm:w-5" />
-                    <span className="hidden sm:inline">Reiniciar</span>
+                    <RotateCcw className="h-5 w-5" />
+                    Reiniciar
                   </button>
                 </div>
               </div>

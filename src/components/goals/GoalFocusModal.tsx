@@ -185,38 +185,36 @@ export default function GoalFocusModal({
         </div>
 
         {/* Timer */}
-        <div className="mb-8 rounded-2xl bg-gradient-to-br from-[hsl(210,25%,14%)] to-[hsl(210,25%,12%)] border border-[hsl(210,30%,18%)] p-4 sm:p-6 md:p-8">
+        <div className="mb-8 rounded-2xl bg-gradient-to-br from-[hsl(210,25%,14%)] to-[hsl(210,25%,12%)] border border-[hsl(210,30%,18%)] p-8">
           <div className="text-center">
-            <div className="text-4xl sm:text-5xl md:text-6xl font-mono font-bold text-primary mb-4 sm:mb-6 tracking-tight break-all max-w-full overflow-hidden">
+            <div className="text-6xl font-mono font-bold text-primary mb-6 tracking-tight" style={{ wordWrap: 'break-word', maxWidth: '100%' }}>
               {formatTime(seconds)}
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+            <div className="flex flex-wrap items-center justify-center gap-3">
               {timerState === 'idle' || timerState === 'paused' ? (
                 <button
                   onClick={handleStart}
-                  className="flex items-center gap-2 rounded-xl bg-green-600 px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base font-semibold text-white hover:bg-green-700 transition-all shadow-lg"
+                  className="flex items-center gap-2 rounded-xl bg-green-600 px-8 py-3 text-base font-semibold text-white hover:bg-green-700 transition-all shadow-lg"
                 >
-                  <Play className="h-4 w-4 sm:h-5 sm:w-5" />
-                  <span className="hidden sm:inline">{timerState === 'idle' ? 'Iniciar' : 'Reanudar'}</span>
-                  <span className="sm:hidden">{timerState === 'idle' ? 'Play' : 'Resume'}</span>
+                  <Play className="h-5 w-5" />
+                  {timerState === 'idle' ? 'Iniciar' : 'Reanudar'}
                 </button>
               ) : (
                 <button
                   onClick={handlePause}
-                  className="flex items-center gap-2 rounded-xl bg-amber-600 px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base font-semibold text-white hover:bg-amber-700 transition-all shadow-lg"
+                  className="flex items-center gap-2 rounded-xl bg-amber-600 px-8 py-3 text-base font-semibold text-white hover:bg-amber-700 transition-all shadow-lg"
                 >
-                  <Pause className="h-4 w-4 sm:h-5 sm:w-5" />
-                  <span className="hidden sm:inline">Pausar</span>
-                  <span className="sm:hidden">Pause</span>
+                  <Pause className="h-5 w-5" />
+                  Pausar
                 </button>
               )}
               <button
                 onClick={handleReset}
                 disabled={seconds === 0}
-                className="flex items-center gap-2 rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 rounded-xl border border-[hsl(210,30%,18%)] bg-[hsl(215,35%,12%)] px-6 py-3 text-base font-medium text-[hsl(210,20%,85%)] hover:bg-[hsl(210,25%,16%)] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                <RotateCcw className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="hidden sm:inline">Reiniciar</span>
+                <RotateCcw className="h-5 w-5" />
+                Reiniciar
               </button>
             </div>
           </div>
