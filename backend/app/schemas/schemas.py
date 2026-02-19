@@ -2,7 +2,7 @@
 Esquemas Pydantic para validación y serialización de datos.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -11,6 +11,8 @@ from datetime import datetime
 
 class GoalBase(BaseModel):
     """Base para objetivos."""
+    model_config = ConfigDict(populate_by_name=True)
+    
     titulo: str = Field(..., min_length=1, max_length=255, alias="title")
     descripcion: Optional[str] = None
     categoria: Optional[str] = None
