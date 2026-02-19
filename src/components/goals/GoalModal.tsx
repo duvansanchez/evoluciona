@@ -134,9 +134,9 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="goal-modal max-w-2xl max-h-[90vh] overflow-y-auto border-[hsl(210,30%,18%)] bg-gradient-to-br from-[hsl(215,35%,12%)] to-[hsl(215,35%,8%)] text-[hsl(210,20%,90%)] p-0 gap-0 sm:rounded-3xl shadow-2xl">
+      <DialogContent className="goal-modal max-w-2xl max-h-[90vh] overflow-y-auto border-border bg-background text-foreground p-0 gap-0 sm:rounded-2xl">
         {/* Header with gradient */}
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-[hsl(200,80%,50%)] to-[hsl(220,80%,55%)] px-6 pt-5 pb-4 rounded-t-3xl">
+        <div className="sticky top-0 z-10 bg-primary px-6 pt-5 pb-4 rounded-t-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-heading font-bold text-white drop-shadow-lg">
               {isEditing ? (
@@ -190,7 +190,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                         ? p === 'high' ? 'bg-priority-high text-white shadow-lg shadow-priority-high/30'
                         : p === 'medium' ? 'bg-priority-medium text-white shadow-lg shadow-priority-medium/30'
                         : 'bg-priority-low text-white shadow-lg shadow-priority-low/30'
-                        : 'bg-[hsl(210,25%,16%)] text-[hsl(210,15%,50%)] hover:bg-[hsl(210,25%,20%)]'
+                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
                     }`}
                   >
                     {p === 'high' ? 'Alta' : p === 'medium' ? 'Media' : 'Baja'}
@@ -257,9 +257,9 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                 </select>
               </FieldGroup>
 
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-[hsl(200,80%,50%,0.1)] border border-[hsl(200,80%,50%,0.2)]">
-                <Info className="h-4 w-4 text-[hsl(200,80%,60%)] mt-0.5 shrink-0" />
-                <p className="text-xs text-[hsl(200,80%,70%)]">
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-primary/10 border border-primary/20">
+                <Info className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                <p className="text-xs text-primary">
                   Los objetivos programados no aparecerán en la lista de hoy hasta la fecha seleccionada.
                 </p>
               </div>
@@ -279,11 +279,11 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                 <div className="grid grid-cols-2 gap-4">
                   <div className="relative">
                     <input type="number" min="0" value={form.estimatedHours} onChange={e => update('estimatedHours', e.target.value)} placeholder="0" className="modal-input pr-14" />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[hsl(210,15%,50%)] font-medium">horas</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">horas</span>
                   </div>
                   <div className="relative">
                     <input type="number" min="0" max="59" value={form.estimatedMinutes} onChange={e => update('estimatedMinutes', e.target.value)} placeholder="0" className="modal-input pr-14" />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[hsl(210,15%,50%)] font-medium">min</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground font-medium">min</span>
                   </div>
                 </div>
               </FieldGroup>
@@ -315,28 +315,28 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
 
               {/* Checkboxes */}
               <div className="space-y-3">
-                <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-[hsl(210,25%,14%)] transition-colors">
+                <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-muted/50 transition-colors">
                   <input 
                     type="checkbox" 
                     checked={form.recurring} 
                     onChange={e => update('recurring', e.target.checked)} 
-                    className="mt-1 h-4 w-4 rounded border-2 border-[hsl(210,15%,35%)] bg-[hsl(215,30%,13%)] text-[hsl(200,80%,50%)] focus:ring-2 focus:ring-[hsl(200,80%,50%,0.5)] focus:ring-offset-0 cursor-pointer transition-all checked:bg-[hsl(200,80%,50%)] checked:border-[hsl(200,80%,50%)]" 
+                    className="mt-1 h-4 w-4 rounded border-2 border-input bg-background text-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0 cursor-pointer transition-all checked:bg-primary checked:border-primary" 
                   />
                   <div className="flex-1">
-                    <span className="text-sm font-medium text-[hsl(210,20%,85%)] group-hover:text-[hsl(210,20%,95%)] transition-colors">🔄 Hacer este objetivo recurrente</span>
-                    <p className="text-xs text-[hsl(210,15%,50%)] mt-0.5">El objetivo se repetirá según la frecuencia establecida</p>
+                    <span className="text-sm font-medium text-foreground transition-colors">🔄 Hacer este objetivo recurrente</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">El objetivo se repetirá según la frecuencia establecida</p>
                   </div>
                 </label>
-                <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-[hsl(210,25%,14%)] transition-colors">
+                <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-muted/50 transition-colors">
                   <input 
                     type="checkbox" 
                     checked={form.isParent} 
                     onChange={e => update('isParent', e.target.checked)} 
-                    className="mt-1 h-4 w-4 rounded border-2 border-[hsl(210,15%,35%)] bg-[hsl(215,30%,13%)] text-[hsl(200,80%,50%)] focus:ring-2 focus:ring-[hsl(200,80%,50%,0.5)] focus:ring-offset-0 cursor-pointer transition-all checked:bg-[hsl(200,80%,50%)] checked:border-[hsl(200,80%,50%)]" 
+                    className="mt-1 h-4 w-4 rounded border-2 border-input bg-background text-primary focus:ring-2 focus:ring-primary/50 focus:ring-offset-0 cursor-pointer transition-all checked:bg-primary checked:border-primary" 
                   />
                   <div className="flex-1">
-                    <span className="text-sm font-medium text-[hsl(210,20%,85%)] group-hover:text-[hsl(210,20%,95%)] transition-colors">👨‍👩‍👧‍👦 Este objetivo es padre</span>
-                    <p className="text-xs text-[hsl(210,15%,50%)] mt-0.5">Puede contener sub-objetivos relacionados</p>
+                    <span className="text-sm font-medium text-foreground transition-colors">👨‍👩‍👧‍👦 Este objetivo es padre</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">Puede contener sub-objetivos relacionados</p>
                   </div>
                 </label>
               </div>
@@ -355,13 +355,13 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
               {form.subGoals.length > 0 && (
                 <div className="space-y-2">
                   {form.subGoals.map(sub => (
-                    <div key={sub.id} className="flex items-center gap-3 group/sub p-2 rounded-lg hover:bg-[hsl(210,25%,16%)] transition-colors">
+                    <div key={sub.id} className="flex items-center gap-3 group/sub p-2 rounded-lg hover:bg-muted/50 transition-colors">
                       <button
                         onClick={() => toggleSubGoal(sub.id)}
                         className={`h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all ${
                           sub.completed
                             ? 'bg-primary border-primary shadow-lg shadow-primary/30'
-                            : 'border-[hsl(210,15%,35%)] hover:border-primary hover:scale-110'
+                            : 'border-input hover:border-primary hover:scale-110'
                         }`}
                       >
                         {sub.completed && (
@@ -370,7 +370,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                           </svg>
                         )}
                       </button>
-                      <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-[hsl(210,15%,40%)]' : 'text-[hsl(210,20%,85%)]'}`}>
+                      <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
                         {sub.title}
                       </span>
                       {/* Priority dots */}
@@ -380,7 +380,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                             key={p}
                             onClick={() => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, priority: p } : s))}
                             className={`h-3 w-3 rounded-full transition-all hover:scale-125 ${
-                              sub.priority === p ? priorityDot[p] + ' ring-2 ring-white/30' : 'bg-[hsl(210,15%,25%)] hover:bg-[hsl(210,15%,35%)]'
+                              sub.priority === p ? priorityDot[p] + ' ring-2 ring-white/30' : 'bg-muted hover:bg-muted-foreground/40'
                             }`}
                             title={p === 'high' ? 'Alta' : p === 'medium' ? 'Media' : 'Baja'}
                           />
@@ -388,7 +388,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                       </div>
                       <button
                         onClick={() => removeSubGoal(sub.id)}
-                        className="p-1 rounded-lg text-[hsl(0,60%,50%)] opacity-0 group-hover/sub:opacity-100 hover:bg-[hsl(0,60%,50%,0.2)] transition-all"
+                        className="p-1 rounded-lg text-destructive opacity-0 group-hover/sub:opacity-100 hover:bg-destructive/10 transition-all"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -421,17 +421,17 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 border-t border-[hsl(210,25%,16%)] bg-gradient-to-br from-[hsl(215,35%,12%)] to-[hsl(215,35%,8%)] px-6 py-4 rounded-b-3xl">
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 border-t border-border bg-background px-6 py-4 rounded-b-2xl">
           <button
             onClick={() => onOpenChange(false)}
-            className="rounded-xl px-5 py-2 text-sm font-semibold text-[hsl(210,20%,70%)] hover:text-[hsl(210,20%,95%)] hover:bg-[hsl(210,25%,16%)] transition-all"
+            className="rounded-xl px-5 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
           >
             Cancelar
           </button>
           <button
             onClick={handleSubmit}
             disabled={!form.title.trim()}
-            className="rounded-xl bg-gradient-to-r from-[hsl(200,80%,50%)] to-[hsl(220,80%,55%)] px-6 py-2 text-sm font-bold text-white hover:shadow-lg hover:shadow-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105"
+            className="rounded-xl bg-primary px-6 py-2 text-sm font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all hover:scale-105"
           >
             {isEditing ? '✓ Guardar Cambios' : '✓ Crear Objetivo'}
           </button>
@@ -450,21 +450,21 @@ function CollapsibleSection({ title, icon, isOpen, onToggle, badge, children }: 
   children: React.ReactNode 
 }) {
   return (
-    <div className="border border-[hsl(210,25%,18%)] rounded-xl overflow-hidden bg-[hsl(215,30%,11%)]">
+    <div className="border border-input rounded-xl overflow-hidden bg-background">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-[hsl(210,25%,14%)] transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-2">
           <span className="text-base">{icon}</span>
-          <span className="text-sm font-semibold text-[hsl(210,20%,85%)]">{title}</span>
+          <span className="text-sm font-semibold text-foreground">{title}</span>
           {badge !== undefined && badge > 0 && (
             <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-bold">
               {badge}
             </span>
           )}
         </div>
-        <ChevronDown className={`h-4 w-4 text-[hsl(210,15%,50%)] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
         <div className="px-4 pb-4 pt-4 animate-fade-in">
