@@ -120,6 +120,26 @@ export default function GoalFocusModal({
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getChecklistCounts = (notesText?: string) => {
+    if (!notesText) return null;
+    const lines = notesText.split('\n');
+    let total = 0;
+    let completed = 0;
+
+    lines.forEach(line => {
+      const match = line.match(/^\s*(?:[-*•]|\d+\.)?\s*\[(.*?)\]/);
+      if (!match) return;
+      const marker = (match[1] ?? '').trim();
+      if (marker === '' || /^x$/i.test(marker)) {
+        total += 1;
+        if (/^x$/i.test(marker)) completed += 1;
+      }
+    });
+
+    if (total === 0) return null;
+    return { completed, total };
+  };
+
   if (!open || !goal) return null;
 
   const completedCount = subGoals.filter(s => s.completed).length;
@@ -246,7 +266,9 @@ export default function GoalFocusModal({
 
           {/* Subgoals list */}
           <div className="space-y-2">
-            {subGoals.map(sub => (
+            {subGoals.map(sub => {
+              const checklistCounts = getChecklistCounts(sub.notes);
+              return (
               <div
                 key={sub.id}
                 className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors group"
@@ -273,6 +295,11 @@ export default function GoalFocusModal({
                     {Math.floor(sub.focusTimeSeconds / 60)}m
                   </span>
                 )}
+                {checklistCounts && (
+                  <span className="text-xs text-muted-foreground">
+                    Checklist {checklistCounts.completed}/{checklistCounts.total}
+                  </span>
+                )}
                 {!sub.completed && (
                   <button
                     onClick={() => onOpenSubGoalFocus(sub.id)}
@@ -283,7 +310,8 @@ export default function GoalFocusModal({
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {totalCount === 0 && (
