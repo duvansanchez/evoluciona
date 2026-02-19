@@ -256,6 +256,15 @@ export default function Goals() {
   };
 
   const handleSave = async (data: any) => {
+    // Mapear categorías del frontend al backend
+    const categoryMap: Record<string, string> = {
+      daily: 'diario',
+      weekly: 'semanal',
+      monthly: 'mensual',
+      yearly: 'anual',
+      general: 'general'
+    };
+    
     if (editingGoal) {
       // Update existing goal in backend
       const updatePayload: Record<string, unknown> = {
@@ -263,7 +272,7 @@ export default function Goals() {
       };
       
       if (data.description) updatePayload.descripcion = data.description;
-      if (data.category) updatePayload.categoria = data.category;
+      if (data.category) updatePayload.categoria = categoryMap[data.category] || data.category;
       if (data.priority) updatePayload.prioridad = data.priority;
       if (data.recurring !== undefined) updatePayload.recurrente = data.recurring;
       if (data.dayPart && data.dayPart !== 'none') updatePayload.parte_dia = data.dayPart;
@@ -310,12 +319,21 @@ export default function Goals() {
       });
     } else {
       // Create new goal in backend
+      // Mapear categorías del frontend al backend
+      const categoryMap: Record<string, string> = {
+        daily: 'diario',
+        weekly: 'semanal',
+        monthly: 'mensual',
+        yearly: 'anual',
+        general: 'general'
+      };
+      
       const createPayload: Record<string, unknown> = {
         title: data.title,
       };
       
       if (data.description) createPayload.descripcion = data.description;
-      if (data.category) createPayload.categoria = data.category;
+      if (data.category) createPayload.categoria = categoryMap[data.category] || data.category;
       if (data.priority) createPayload.prioridad = data.priority;
       if (data.recurring !== undefined) createPayload.recurrente = data.recurring;
       if (data.dayPart && data.dayPart !== 'none') createPayload.parte_dia = data.dayPart;

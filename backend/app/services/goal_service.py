@@ -38,6 +38,7 @@ class GoalService:
             fecha_inicio=goal.fecha_inicio,
             fecha_fin=goal.fecha_fin,
             programado_para=goal.programado_para,
+            fecha_creacion=datetime.now(),  # Asignar fecha de creación automáticamente
         )
         db.add(db_goal)
         db.commit()
