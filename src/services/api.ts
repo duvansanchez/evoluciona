@@ -28,6 +28,17 @@ export const goalsAPI = {
     if (!response.ok) throw new Error('Error fetching subgoals');
     return response.json();
   },
+  updateSubGoal: async (subGoalId: number | string, updates: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+    });
+    if (!response.ok) throw new Error('Error updating subgoal');
+    return response.json();
+  },
 };
 
 /**

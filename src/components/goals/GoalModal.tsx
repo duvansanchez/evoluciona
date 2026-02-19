@@ -370,9 +370,12 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                           </svg>
                         )}
                       </button>
-                      <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                        {sub.title}
-                      </span>
+                      <input
+                        value={sub.title}
+                        onChange={e => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))}
+                        className={`flex-1 bg-transparent text-sm outline-none ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+                        maxLength={200}
+                      />
                       {/* Priority dots */}
                       <div className="flex items-center gap-1.5">
                         {(['low', 'medium', 'high'] as GoalPriority[]).map(p => (

@@ -264,6 +264,16 @@ export default function Goals() {
         scheduledFor: data.scheduledType === 'specific' ? data.scheduledDate : undefined,
         subGoals: data.subGoals,
       } : g));
+
+      data.subGoals.forEach((sub: SubGoal) => {
+        if (sub.id.startsWith('new-')) return;
+        void persistSubGoalUpdate(sub.id, {
+          title: sub.title,
+          completed: sub.completed,
+          focusTimeSeconds: sub.focusTimeSeconds,
+          notes: sub.notes,
+        });
+      });
     } else {
       const newGoal: Goal = {
         id: `new-${Date.now()}`,
@@ -321,6 +331,21 @@ export default function Goals() {
     setFocusModalOpen(true);
   };
 
+  const persistSubGoalUpdate = async (subGoalId: string, updates: Partial<SubGoal>) => {
+    const payload: Record<string, unknown> = {};
+    if (typeof updates.title === 'string') payload.titulo = updates.title;
+    if (typeof updates.completed === 'boolean') payload.completado = updates.completed;
+    if (typeof updates.focusTimeSeconds === 'number') payload.tiempo_focus = updates.focusTimeSeconds;
+    if (typeof updates.notes === 'string') payload.notas = updates.notes;
+    if (Object.keys(payload).length === 0) return;
+
+    try {
+      await goalsAPI.updateSubGoal(subGoalId, payload);
+    } catch (error) {
+      console.error('❌ Error updating subgoal:', subGoalId, error);
+    }
+  };
+
   const handleSaveGoalFocusProgress = (goalId: string, updates: { subGoals: SubGoal[]; focusTimeSeconds: number; focusNotes: string }) => {
     setGoals(prev => prev.map(g =>
       g.id === goalId
@@ -342,6 +367,14 @@ export default function Goals() {
         }
       : prev
     );
+
+    updates.subGoals.forEach(sub => {
+      void persistSubGoalUpdate(sub.id, {
+        completed: sub.completed,
+        focusTimeSeconds: sub.focusTimeSeconds,
+        notes: sub.notes,
+      });
+    });
   };
 
   const handleCompleteGoalFromFocus = (goalId: string) => {
@@ -370,6 +403,8 @@ export default function Goals() {
     if (focusSubGoal && focusSubGoal.id === subGoalId) {
       setFocusSubGoal(prev => prev ? { ...prev, ...updates } : null);
     }
+
+    void persistSubGoalUpdate(subGoalId, updates);
   };
 
   const handleCompleteSubGoal = (subGoalId: string) => {
@@ -391,6 +426,8 @@ export default function Goals() {
           }
         : g
     ));
+
+    void persistSubGoalUpdate(subGoalId, { completed: true });
   };
 
   const sorted = [...filtered].sort((a, b) => {

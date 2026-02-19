@@ -99,13 +99,18 @@ export default function GoalFocusModal({
   };
 
   const toggleSubGoal = (id: string) => {
-    setSubGoals(prev => prev.map(s =>
+    const nextSubGoals = subGoals.map(s =>
       s.id === id ? { ...s, completed: !s.completed, completedAt: !s.completed ? new Date().toISOString() : undefined } : s
     ).sort((a, b) => {
       if (a.completed !== b.completed) return a.completed ? 1 : -1;
       return 0;
-    }));
-    setHasUnsavedChanges(true);
+    });
+
+    setSubGoals(nextSubGoals);
+    setHasUnsavedChanges(false);
+    if (goal) {
+      onSave(goal.id, { subGoals: nextSubGoals, focusTimeSeconds: seconds, focusNotes: notes.trim() });
+    }
   };
 
   const formatTime = (totalSeconds: number) => {
