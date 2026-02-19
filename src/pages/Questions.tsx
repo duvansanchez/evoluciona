@@ -1,13 +1,51 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageCircleQuestion, Settings, CheckCircle2, Clock } from 'lucide-react';
-import { mockQuestions, mockQuestionResponses } from '@/data/mockData';
+import { questionsAPI } from '@/services/api';
+import type { Question } from '@/types';
+
+// Mapear datos del backend al formato frontend
+const mapBackendQuestion = (item: any): Question => ({
+  id: item.id.toString(),
+  title: item.text,
+  description: item.descripcion || undefined,
+  type: (item.type || 'text') as any,
+  category: item.categoria || 'general',
+  required: item.is_required || false,
+  active: item.active,
+  createdAt: item.created_at,
+  order: 0,
+  options: item.options ? JSON.parse(item.options) : [],
+});
 
 export default function Questions() {
   const navigate = useNavigate();
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Cargar preguntas del backend
+  useEffect(() => {
+    const loadQuestions = async () => {
+      try {
+        setLoading(true);
+        const response = await questionsAPI.getQuestions(1, 100);
+        const mappedQuestions = response.items.map(mapBackendQuestion);
+        setQuestions(mappedQuestions);
+      } catch (error) {
+        console.error('Error loading questions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadQuestions();
+  }, []);
+
+  const { mockQuestionResponses } = require('@/data/mockData');
   
   const today = new Date().toISOString().split('T')[0];
-  const todayResponses = mockQuestionResponses.filter(r => r.date === today);
-  const activeQuestions = mockQuestions.filter(q => q.active);
+  const todayResponses = mockQuestionResponses.filter((r: any) => r.date === today);
+  const activeQuestions = questions.filter(q => q.active);
   
   const answeredCount = todayResponses.length;
   const totalCount = activeQuestions.length;

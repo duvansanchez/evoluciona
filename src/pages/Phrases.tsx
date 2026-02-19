@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, Settings } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
@@ -6,12 +6,27 @@ import PhraseCard from '@/components/phrases/PhraseCard';
 import PhraseModal from '@/components/phrases/PhraseModal';
 import ReviewModal from '@/components/phrases/ReviewModal';
 import RandomPhraseModal from '@/components/phrases/RandomPhraseModal';
-import { mockPhrases, mockPhraseCategories } from '@/data/mockData';
+import { phrasesAPI } from '@/services/api';
 import type { Phrase } from '@/types';
+
+// Mapear datos del backend al formato frontend
+const mapBackendPhrase = (item: any): Phrase => ({
+  id: item.id.toString(),
+  text: item.texto,
+  author: item.autor || undefined,
+  categoryId: item.categoria_id?.toString(),
+  subcategoryId: item.subcategoria_id?.toString(),
+  notes: item.notas || undefined,
+  active: item.activa,
+  reviewCount: item.total_repasos || 0,
+  lastReviewedAt: item.ultima_vez || undefined,
+  createdAt: item.fecha_creacion,
+});
 
 export default function Phrases() {
   const navigate = useNavigate();
-  const [phrases, setPhrases] = useState(mockPhrases);
+  const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
   const [showPhraseModal, setShowPhraseModal] = useState(false);
@@ -19,6 +34,27 @@ export default function Phrases() {
   const [showRandomModal, setShowRandomModal] = useState(false);
   const [randomPhrase, setRandomPhrase] = useState<Phrase | null>(null);
   const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
+
+  // Cargar frases del backend
+  useEffect(() => {
+    const loadPhrases = async () => {
+      try {
+        setLoading(true);
+        const response = await phrasesAPI.getPhrases(1, 100);
+        const mappedPhrases = response.items.map(mapBackendPhrase);
+        setPhrases(mappedPhrases);
+      } catch (error) {
+        console.error('Error loading phrases:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPhrases();
+  }, []);
+
+  // Importar categorías del mock data por ahora
+  const { mockPhraseCategories } = require('@/data/mockData');
 
   const activePhrases = phrases.filter(p => p.active);
   const totalReviews = phrases.reduce((sum, p) => sum + p.reviewCount, 0);

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CheckCircle2, Circle, Grid3X3, List, Plus, Target, TrendingUp } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalModal from '@/components/goals/GoalModal';
 import GoalFocusModal from '@/components/goals/GoalFocusModal';
 import FocusModal from '@/components/goals/FocusModal';
-import { mockGoals } from '@/data/mockData';
+import { goalsAPI } from '@/services/api';
 import type { Goal, GoalCategory, SubGoal } from '@/types';
 
 const tabs: { key: GoalCategory | 'all'; label: string }[] = [
@@ -17,10 +17,93 @@ const tabs: { key: GoalCategory | 'all'; label: string }[] = [
   { key: 'general', label: 'Generales' },
 ];
 
+// Mapear categoría de español a inglés
+const mapCategory = (categoria: string | null | undefined): GoalCategory => {
+  if (!categoria) return 'general';
+  const normalized = categoria.toLowerCase().trim();
+  switch (normalized) {
+    case 'diario': return 'daily';
+    case 'semanal': return 'weekly';
+    case 'mensual': return 'monthly';
+    case 'anual': return 'yearly';
+    case 'diarios': return 'daily';
+    case 'semanales': return 'weekly';
+    case 'mensuales': return 'monthly';
+    case 'anuales': return 'yearly';
+    case 'general': return 'general';
+    default: return 'general';
+  }
+};
+
+// Mapear prioridad de español a inglés
+const mapPriority = (prioridad: string | null | undefined): 'high' | 'medium' | 'low' => {
+  if (!prioridad) return 'medium';
+  const normalized = prioridad.toLowerCase().trim();
+  if (normalized === 'alta' || normalized === 'high') return 'high';
+  if (normalized === 'baja' || normalized === 'low') return 'low';
+  return 'medium';
+};
+
+// Filtrar objetivos según reglas de visualización por fecha
+const shouldShowGoal = (item: any): boolean => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // Inicio del día
+  
+  // Regla 1: Objetivos recurrentes siempre son visibles
+  if (item.recurrente === true) {
+    return true;
+  }
+  
+  // Regla 2: Objetivos programados para el futuro no se muestran hasta su fecha
+  if (item.programado_para) {
+    const programadoPara = new Date(item.programado_para);
+    programadoPara.setHours(0, 0, 0, 0);
+    const shouldShow = programadoPara <= today;
+    if (!shouldShow) {
+      console.log(`🚫 FILTRADO por fecha futura: "${item.titulo}" programado_para=${item.programado_para}`);
+    }
+    return shouldShow;
+  }
+  
+  // Regla 3: Objetivos normales se muestran desde el día que fueron creados
+  if (item.fecha_creacion) {
+    const fechaCreacion = new Date(item.fecha_creacion);
+    fechaCreacion.setHours(0, 0, 0, 0);
+    const shouldShow = fechaCreacion <= today;
+    if (!shouldShow) {
+      console.log(`🚫 FILTRADO por fecha creación futura: "${item.titulo}" fecha_creacion=${item.fecha_creacion}`);
+    }
+    return shouldShow;
+  }
+  
+  // Por defecto, mostrar el objetivo
+  return true;
+};
+
+// Mapear datos del backend al formato frontend
+const mapBackendGoal = (item: any): Goal => ({
+  id: item.id.toString(),
+  user_id: item.user_id,
+  title: item.titulo,
+  description: item.descripcion || undefined,
+  category: mapCategory(item.categoria),
+  priority: mapPriority(item.prioridad),
+  completed: item.completado || false,
+  recurring: item.recurrente || false,
+  createdAt: item.fecha_creacion,
+  completedAt: item.fecha_completado || undefined,
+  parentGoalId: item.objetivo_padre_id?.toString(),
+  isParent: item.es_padre || false,
+  subGoals: [] as SubGoal[],
+  skipped: false,
+  scheduledFor: item.programado_para || undefined,
+});
+
 export default function Goals() {
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [goals, setGoals] = useState(mockGoals);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [goalFocusOpen, setGoalFocusOpen] = useState(false);
@@ -28,6 +111,86 @@ export default function Goals() {
   const [focusModalOpen, setFocusModalOpen] = useState(false);
   const [focusSubGoal, setFocusSubGoal] = useState<SubGoal | null>(null);
   const [focusParentGoal, setFocusParentGoal] = useState<Goal | null>(null);
+
+  // Cargar objetivos del backend
+  useEffect(() => {
+    const loadGoals = async () => {
+      try {
+        setLoading(true);
+        
+        // Cargar primera página para obtener el total
+        const firstPage = await goalsAPI.getGoals(1, 100);
+        const totalPages = firstPage.pages;
+        console.log(`📊 Total de páginas: ${totalPages}, Total objetivos: ${firstPage.total}`);
+        
+        // Cargar todas las páginas restantes en paralelo
+        const pagePromises = [];
+        for (let page = 2; page <= totalPages; page++) {
+          pagePromises.push(goalsAPI.getGoals(page, 100));
+        }
+        
+        const restPages = await Promise.all(pagePromises);
+        
+        // Combinar todos los items
+        const allItems = [
+          ...firstPage.items,
+          ...restPages.flatMap(p => p.items)
+        ];
+        
+        console.log(`✅ Total objetivos cargados: ${allItems.length}`);
+        
+        // Primero mapear todos sin filtrar para ver totales reales
+        const allMapped = allItems.map(mapBackendGoal);
+        console.log('📋 Categorías SIN filtro de fecha:', allMapped.reduce((acc, g) => {
+          acc[g.category] = (acc[g.category] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>));
+        
+        // Filtrar y mapear objetivos
+        const filteredItems = allItems.filter(shouldShowGoal);
+        const mappedGoals = filteredItems.map(mapBackendGoal);
+        
+        // Cargar subobjetivos para cada objetivo
+        const goalsWithSubgoals = await Promise.all(
+          mappedGoals.map(async (goal) => {
+            try {
+              const subgoalsData = await goalsAPI.getSubGoals(goal.id);
+              const mappedSubgoals = subgoalsData.map((sub: any): SubGoal => ({
+                id: sub.id.toString(),
+                title: sub.titulo,
+                completed: sub.completado || false,
+                notes: sub.notas || undefined,
+                completedAt: sub.fecha_completado || undefined,
+                priority: undefined, // Los subobjetivos no tienen prioridad en  la tabla subobjetivos
+                focusTimeSeconds: sub.tiempo_focus || 0,
+              }));
+              return { ...goal, subGoals: mappedSubgoals };
+            } catch (error) {
+              console.warn(`⚠️ No se pudieron cargar subobjetivos para objetivo ${goal.id}:`, error);
+              return { ...goal, subGoals: [] };
+            }
+          })
+        );
+        
+        console.log('📊 Total objetivos del backend:', allItems.length);
+        console.log('✅ Objetivos visibles tras filtrado POR FECHA:', goalsWithSubgoals.length);
+        console.log('📋 Categorías CON filtro de fecha:', goalsWithSubgoals.reduce((acc, g) => {
+          acc[g.category] = (acc[g.category] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>));
+        console.log('🔸 Objetivos con subobjetivos:', goalsWithSubgoals.filter(g => g.subGoals.length > 0).length);
+        
+        setGoals(goalsWithSubgoals);
+      } catch (error) {
+        console.error('❌ Error loading goals:', error);
+        // En caso de error, mantener los goals vacíos
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadGoals();
+  }, []);
 
   const filtered = activeTab === 'all' ? goals : goals.filter(g => g.category === activeTab);
   const daily = goals.filter(g => g.category === 'daily');
