@@ -94,6 +94,23 @@ class GoalResponse(BaseModel):
 
 # ==================== PHRASE CATEGORIES ====================
 
+class PhraseSubcategoryBase(BaseModel):
+    """Base para subcategoría de frases."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = None
+    active: Optional[bool] = True
+
+
+class PhraseSubcategoryResponse(PhraseSubcategoryBase):
+    """Respuesta de subcategoría de frase."""
+    id: str
+    category_id: Optional[str] = None
+    created_at: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
 class PhraseCategoryBase(BaseModel):
     """Base para categoría de frases."""
     name: str = Field(..., min_length=1, max_length=255)
@@ -117,6 +134,16 @@ class PhraseCategoryResponse(PhraseCategoryBase):
     """Respuesta de categoría de frase."""
     id: str
     created_at: str
+    
+    class Config:
+        from_attributes = True
+
+
+class PhraseCategoryWithSubcategories(PhraseCategoryBase):
+    """Categoría con subcategorías anidadas."""
+    id: str
+    created_at: str
+    subcategories: List['PhraseSubcategoryResponse'] = []
     
     class Config:
         from_attributes = True

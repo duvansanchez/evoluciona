@@ -7,7 +7,8 @@ import PhraseModal from '@/components/phrases/PhraseModal';
 import ReviewModal from '@/components/phrases/ReviewModal';
 import RandomPhraseModal from '@/components/phrases/RandomPhraseModal';
 import { phrasesAPI } from '@/services/api';
-import type { Phrase } from '@/types';
+import type { Phrase, PhraseCategory } from '@/types';
+import { mockPhraseCategories } from '@/data/mockData';
 
 // Mapear datos del backend al formato frontend
 const mapBackendPhrase = (item: any): Phrase => ({
@@ -23,9 +24,24 @@ const mapBackendPhrase = (item: any): Phrase => ({
   createdAt: item.fecha_creacion,
 });
 
+// Mapear categorías del backend al formato frontend
+const mapBackendCategory = (item: any): PhraseCategory => ({
+  id: item.id.toString(),
+  name: item.name,
+  description: item.description || undefined,
+  active: item.active,
+  subcategories: item.subcategories?.map((sub: any) => ({
+    id: sub.id.toString(),
+    name: sub.name,
+    description: sub.description || undefined,
+    active: sub.active,
+  })) || [],
+});
+
 export default function Phrases() {
   const navigate = useNavigate();
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [categories, setCategories] = useState<PhraseCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
@@ -35,26 +51,32 @@ export default function Phrases() {
   const [randomPhrase, setRandomPhrase] = useState<Phrase | null>(null);
   const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
 
-  // Cargar frases del backend
+  // Cargar frases y categorías del backend
   useEffect(() => {
-    const loadPhrases = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Cargar categorías
+        const categoriesData = await phrasesAPI.getCategoriesTree();
+        const mappedCategories = categoriesData.map(mapBackendCategory);
+        setCategories(mappedCategories);
+        
+        // Cargar frases
         const response = await phrasesAPI.getPhrases(1, 100);
         const mappedPhrases = response.items.map(mapBackendPhrase);
         setPhrases(mappedPhrases);
       } catch (error) {
-        console.error('Error loading phrases:', error);
+        console.error('Error loading phrases data:', error);
+        // Usar mock data como fallback
+        setCategories(mockPhraseCategories);
       } finally {
         setLoading(false);
       }
     };
 
-    loadPhrases();
+    loadData();
   }, []);
-
-  // Importar categorías del mock data por ahora
-  const { mockPhraseCategories } = require('@/data/mockData');
 
   const activePhrases = phrases.filter(p => p.active);
   const totalReviews = phrases.reduce((sum, p) => sum + p.reviewCount, 0);
@@ -69,7 +91,7 @@ export default function Phrases() {
     return true;
   });
 
-  const currentCategory = mockPhraseCategories.find(c => c.id === selectedCategory);
+  const currentCategory = categories.find(c => c.id === selectedCategory);
   const subcategories = currentCategory?.subcategories ?? [];
   const currentSubcategory = subcategories.find(s => s.id === selectedSubcategory);
 
@@ -106,7 +128,7 @@ export default function Phrases() {
     
     let text = 'Repasar';
     if (selectedCategory !== 'all') {
-      const cat = mockPhraseCategories.find(c => c.id === selectedCategory);
+      const cat = categories.find(c => c.id === selectedCategory);
       if (selectedSubcategory !== 'all') {
         const sub = cat?.subcategories.find(s => s.id === selectedSubcategory);
         text = `Repasar ${sub?.name || ''}`;
@@ -196,7 +218,7 @@ export default function Phrases() {
         <MetricCard title="Total" value={phrases.length} icon={BookOpen} color="primary" subtitle={`${activePhrases.length} activas`} />
         <MetricCard title="Hoy" value={reviewedToday} icon={Eye} color="success" subtitle="Repasadas" />
         <MetricCard title="Total repasos" value={totalReviews} icon={RefreshCw} color="warning" />
-        <MetricCard title="Categorías" value={mockPhraseCategories.length} icon={Filter} color="primary" />
+        <MetricCard title="Categorías" value={categories.length} icon={Filter} color="primary" />
       </div>
 
       {/* Filters */}
@@ -207,7 +229,7 @@ export default function Phrases() {
           className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="all">Todas las categorías</option>
-          {mockPhraseCategories.map(cat => (
+          {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
@@ -241,7 +263,7 @@ export default function Phrases() {
           <PhraseCard 
             key={phrase.id} 
             phrase={phrase} 
-            categories={mockPhraseCategories} 
+            categories={categories} 
             onReview={handleReview}
             onEdit={handleEditPhrase}
           />
@@ -261,7 +283,7 @@ export default function Phrases() {
         open={showPhraseModal}
         onOpenChange={setShowPhraseModal}
         phrase={editingPhrase}
-        categories={mockPhraseCategories}
+        categories={categories}
         onSave={handleSavePhrase}
       />
 
@@ -270,7 +292,7 @@ export default function Phrases() {
         open={showReviewModal}
         onOpenChange={setShowReviewModal}
         phrases={filtered}
-        categories={mockPhraseCategories}
+        categories={categories}
         onReview={handleReview}
       />
 
@@ -279,7 +301,7 @@ export default function Phrases() {
         open={showRandomModal}
         onOpenChange={setShowRandomModal}
         phrase={randomPhrase}
-        categories={mockPhraseCategories}
+        categories={categories}
         onNewRandom={handleNewRandomPhrase}
       />
     </div>

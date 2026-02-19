@@ -49,6 +49,12 @@ export const phrasesAPI = {
     if (!response.ok) throw new Error('Error fetching phrase categories');
     return response.json();
   },
+
+  getCategoriesTree: async () => {
+    const response = await fetch(`${API_BASE_URL}/phrases/categories-tree`);
+    if (!response.ok) throw new Error('Error fetching phrase categories tree');
+    return response.json();
+  },
 };
 
 /**

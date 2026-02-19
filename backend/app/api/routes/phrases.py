@@ -39,6 +39,12 @@ def list_categories(
     }
 
 
+@router.get("/categories-tree", response_model=List[dict])
+def get_categories_tree(db: Session = Depends(get_db)):
+    """Obtener todas las categorías con subcategorías anidadas."""
+    return PhraseCategoryService.get_categories_with_subcategories(db)
+
+
 @router.post("/categories", response_model=PhraseCategoryResponse)
 def create_category(category: PhraseCategoryCreate, db: Session = Depends(get_db)):
     """Crear categoría de frase."""

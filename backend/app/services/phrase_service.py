@@ -9,7 +9,7 @@ from app.schemas.schemas import (
     PhraseCreate, PhraseUpdate
 )
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 
 
 class PhraseCategoryService:
@@ -35,6 +35,43 @@ class PhraseCategoryService:
         total = query.count()
         categories = query.order_by(PhraseCategory.fecha_creacion.desc()).offset((page - 1) * page_size).limit(page_size).all()
         return categories, total
+    
+    @staticmethod
+    def get_categories_with_subcategories(db: Session) -> List[Dict[str, Any]]:
+        """Obtener todas las categorías con sus subcategorías anidadas."""
+        # Obtener todas las categorías activas
+        categories = db.query(PhraseCategory).filter(PhraseCategory.activa == True).order_by(PhraseCategory.nombre).all()
+        
+        result = []
+        for category in categories:
+            # Obtener subcategorías de esta categoría
+            subcategories = db.query(PhraseSubcategory).filter(
+                PhraseSubcategory.categoria_id == category.id,
+                PhraseSubcategory.activa == True
+            ).order_by(PhraseSubcategory.nombre).all()
+            
+            # Construir la estructura completa
+            cat_dict = {
+                "id": str(category.id),
+                "name": category.nombre,
+                "description": category.descripcion,
+                "active": category.activa,
+                "created_at": category.fecha_creacion.isoformat() if category.fecha_creacion else None,
+                "subcategories": [
+                    {
+                        "id": str(sub.id),
+                        "name": sub.nombre,
+                        "description": sub.descripcion,
+                        "active": sub.activa,
+                        "category_id": str(sub.categoria_id),
+                        "created_at": sub.fecha_creacion.isoformat() if sub.fecha_creacion else None
+                    }
+                    for sub in subcategories
+                ]
+            }
+            result.append(cat_dict)
+        
+        return result
     
     @staticmethod
     def get_category(db: Session, category_id: str) -> Optional[PhraseCategory]:
