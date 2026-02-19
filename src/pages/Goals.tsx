@@ -45,39 +45,63 @@ const mapPriority = (prioridad: string | null | undefined): 'high' | 'medium' | 
 };
 
 // Filtrar objetivos según reglas de visualización por fecha
-const shouldShowGoal = (item: any): boolean => {
+const shouldShowGoal = (item: any, goalCategory: GoalCategory): boolean => {
   const today = new Date();
-  today.setHours(0, 0, 0, 0); // Inicio del día
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
   
-  // Regla 1: Objetivos recurrentes siempre son visibles
+  // Determinar el período según la categoría
+  let periodoInicio: Date;
+  let periodoFin: Date;
+  
+  switch (goalCategory) {
+    case 'daily':
+      // HOY: desde las 00:00 de hoy hasta las 00:00 de mañana
+      periodoInicio = today;
+      periodoFin = tomorrow;
+      break;
+    case 'weekly':
+      // SEMANA: desde el lunes de esta semana
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
+      monday.setHours(0, 0, 0, 0);
+      periodoInicio = monday;
+      periodoFin = new Date(monday);
+      periodoFin.setDate(monday.getDate() + 7);
+      break;
+    case 'monthly':
+      // MES: desde el día 1 del mes actual
+      periodoInicio = new Date(today.getFullYear(), today.getMonth(), 1);
+      periodoFin = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      break;
+    case 'yearly':
+      // AÑO: desde el 1 de enero del año actual
+      periodoInicio = new Date(today.getFullYear(), 0, 1);
+      periodoFin = new Date(today.getFullYear() + 1, 0, 1);
+      break;
+    case 'general':
+      // General: siempre se muestra
+      return true;
+    default:
+      return true;
+  }
+  
+  // Lógica de la app anterior:
+  // 1. Si es RECURRENTE de esta categoría → SIEMPRE cuenta
   if (item.recurrente === true) {
     return true;
   }
   
-  // Regla 2: Objetivos programados para el futuro no se muestran hasta su fecha
-  if (item.programado_para) {
-    const programadoPara = new Date(item.programado_para);
-    programadoPara.setHours(0, 0, 0, 0);
-    const shouldShow = programadoPara <= today;
-    if (!shouldShow) {
-      console.log(`🚫 FILTRADO por fecha futura: "${item.titulo}" programado_para=${item.programado_para}`);
-    }
-    return shouldShow;
-  }
-  
-  // Regla 3: Objetivos normales se muestran desde el día que fueron creados
+  // 2. Si NO es recurrente → Solo cuenta si fue creado dentro del período
   if (item.fecha_creacion) {
     const fechaCreacion = new Date(item.fecha_creacion);
     fechaCreacion.setHours(0, 0, 0, 0);
-    const shouldShow = fechaCreacion <= today;
-    if (!shouldShow) {
-      console.log(`🚫 FILTRADO por fecha creación futura: "${item.titulo}" fecha_creacion=${item.fecha_creacion}`);
-    }
-    return shouldShow;
+    return fechaCreacion >= periodoInicio && fechaCreacion < periodoFin;
   }
   
-  // Por defecto, mostrar el objetivo
-  return true;
+  // Por defecto no mostrar
+  return false;
 };
 
 // Mapear datos del backend al formato frontend
@@ -139,20 +163,23 @@ export default function Goals() {
         
         console.log(`✅ Total objetivos cargados: ${allItems.length}`);
         
-        // Primero mapear todos sin filtrar para ver totales reales
+        // Mapear PRIMERO (para tener la categoría en inglés)
         const allMapped = allItems.map(mapBackendGoal);
+        
         console.log('📋 Categorías SIN filtro de fecha:', allMapped.reduce((acc, g) => {
           acc[g.category] = (acc[g.category] || 0) + 1;
           return acc;
         }, {} as Record<string, number>));
         
-        // Filtrar y mapear objetivos
-        const filteredItems = allItems.filter(shouldShowGoal);
-        const mappedGoals = filteredItems.map(mapBackendGoal);
+        // Ahora filtrar usando la categoría ya mapeada
+        const filteredGoals = allMapped.filter(goal => shouldShowGoal(
+          allItems.find(item => item.id.toString() === goal.id)!,
+          goal.category
+        ));
         
-        // Cargar subobjetivos para cada objetivo
+        // Cargar subobjetivos para cada objetivo filtrado
         const goalsWithSubgoals = await Promise.all(
-          mappedGoals.map(async (goal) => {
+          filteredGoals.map(async (goal) => {
             try {
               const subgoalsData = await goalsAPI.getSubGoals(goal.id);
               const mappedSubgoals = subgoalsData.map((sub: any): SubGoal => ({
