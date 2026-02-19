@@ -62,9 +62,26 @@ export default function Phrases() {
         const mappedCategories = categoriesData.map(mapBackendCategory);
         setCategories(mappedCategories);
         
-        // Cargar frases
-        const response = await phrasesAPI.getPhrases(1, 100);
-        const mappedPhrases = response.items.map(mapBackendPhrase);
+        // Cargar TODAS las frases con paginación múltiple
+        console.log('📖 Cargando frases...');
+        const firstPage = await phrasesAPI.getPhrases(1, 100);
+        console.log(`📊 Total frases en base de datos: ${firstPage.total}`);
+        console.log(`📄 Total de páginas: ${firstPage.pages}`);
+        
+        let allPhrases = [...firstPage.items];
+        
+        // Si hay más páginas, cargarlas en paralelo
+        if (firstPage.pages > 1) {
+          const pagePromises = [];
+          for (let page = 2; page <= firstPage.pages; page++) {
+            pagePromises.push(phrasesAPI.getPhrases(page, 100));
+          }
+          const restPages = await Promise.all(pagePromises);
+          allPhrases = [...allPhrases, ...restPages.flatMap(p => p.items)];
+        }
+        
+        const mappedPhrases = allPhrases.map(mapBackendPhrase);
+        console.log(`✅ Total frases cargadas: ${mappedPhrases.length}`);
         setPhrases(mappedPhrases);
       } catch (error) {
         console.error('Error loading phrases data:', error);
