@@ -225,6 +225,20 @@ export default function Goals() {
     loadGoals();
   }, []);
 
+  // Escuchar Ctrl+N para crear nuevo objetivo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        setEditingGoal(null);
+        setModalOpen(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const filtered = activeTab === 'all' ? goals : goals.filter(g => g.category === activeTab);
   const daily = goals.filter(g => g.category === 'daily');
   const weekly = goals.filter(g => g.category === 'weekly');

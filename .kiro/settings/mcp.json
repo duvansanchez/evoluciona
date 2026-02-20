@@ -7,7 +7,7 @@
         "@modelcontextprotocol/server-github"
       ],
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "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"
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "tu_token_aqui"
       },
       "autoApprove": [
         "get_file_contents",
