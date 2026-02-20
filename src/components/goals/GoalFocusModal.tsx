@@ -35,13 +35,10 @@ export default function GoalFocusModal({
     if (open && goal) {
       setSeconds(goal.focusTimeSeconds || 0);
       setNotes(goal.focusNotes || '');
-      // NO reordenar: mantener el orden que viene del backend (que respeta el campo "orden")
-      // Solo separar completados al final
-      const sorted = [...goal.subGoals].sort((a, b) => {
-        if (a.completed !== b.completed) return a.completed ? 1 : -1;
-        return 0;
-      });
-      setSubGoals(sorted);
+      // Mantener el orden que viene del backend, solo separar completados al final
+      const nonCompleted = goal.subGoals.filter(s => !s.completed);
+      const completed = goal.subGoals.filter(s => s.completed);
+      setSubGoals([...nonCompleted, ...completed]);
       setTimerState('idle');
       setHasUnsavedChanges(false);
     }
