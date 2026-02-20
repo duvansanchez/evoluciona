@@ -25,6 +25,7 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
   const autoSaveRef = useRef<number | null>(null);
   const notesTimeoutRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const prevOpenRef = useRef(open);
 
   // Cargar datos del subobjetivo
   useEffect(() => {
@@ -33,9 +34,13 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
       setNotes(subGoal.notes || '');
       setTimerState('idle');
       setHasUnsavedChanges(false);
-      setIsEditingNotes(false);
+      // Solo resetear isEditingNotes si el modal se estaba cerrando (abre por primera vez)
+      if (!prevOpenRef.current) {
+        setIsEditingNotes(false);
+      }
       setHeadingMenuOpen(false);
     }
+    prevOpenRef.current = open;
   }, [open, subGoal]);
 
   // Timer logic
