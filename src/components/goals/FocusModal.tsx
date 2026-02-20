@@ -20,6 +20,7 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [headingMenuOpen, setHeadingMenuOpen] = useState(false);
+  const [colorMenuOpen, setColorMenuOpen] = useState(false);
   
   const intervalRef = useRef<number | null>(null);
   const autoSaveRef = useRef<number | null>(null);
@@ -245,8 +246,45 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
     setHeadingMenuOpen(false);
   };
 
+  const insertHighlight = (color: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = notes.substring(start, end) || 'texto resaltado';
+    const beforeText = notes.substring(0, start);
+    const afterText = notes.substring(end);
+
+    const newText = beforeText + `{${color}:${selectedText}}` + afterText;
+    setNotes(newText);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + color.length + 2, start + color.length + 2 + selectedText.length);
+    }, 0);
+    setColorMenuOpen(false);
+  };
+
   // Renderizar markdown preview (simple)
   const renderPreview = (text: string) => {
+    const highlightMap: Record<string, string> = {
+      'yellow': 'bg-yellow-200 text-yellow-900',
+      'pink': 'bg-pink-200 text-pink-900',
+      'blue': 'bg-blue-200 text-blue-900',
+      'green': 'bg-green-200 text-green-900',
+      'purple': 'bg-purple-200 text-purple-900',
+      'orange': 'bg-orange-200 text-orange-900',
+      'red': 'bg-red-200 text-red-900',
+    };
+
+    const processHighlights = (content: string) => {
+      return content.replace(/\{(yellow|pink|blue|green|purple|orange|red):([^}]+)\}/g, (match, color, text) => {
+        const classes = highlightMap[color] || highlightMap['yellow'];
+        return `<mark class="px-1.5 py-0.5 rounded ${classes}">$2</mark>`.replace('$2', text);
+      });
+    };
+
     const lines = text.split('\n');
     const processedLines: string[] = [];
     
@@ -255,20 +293,21 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
       
       // Headers
       if (processed.startsWith('### ')) {
-        processed = `<h3 class="text-lg font-semibold mb-2 mt-4">${processed.slice(4)}</h3>`;
+        processed = `<h3 class="text-lg font-semibold mb-2 mt-4">${processHighlights(processed.slice(4))}</h3>`;
       } else if (processed.startsWith('## ')) {
-        processed = `<h2 class="text-xl font-semibold mb-2 mt-4">${processed.slice(3)}</h2>`;
+        processed = `<h2 class="text-xl font-semibold mb-2 mt-4">${processHighlights(processed.slice(3))}</h2>`;
       } else if (processed.startsWith('# ')) {
-        processed = `<h1 class="text-2xl font-bold mb-3 mt-4">${processed.slice(2)}</h1>`;
+        processed = `<h1 class="text-2xl font-bold mb-3 mt-4">${processHighlights(processed.slice(2))}</h1>`;
       }
       // Checkboxes (marcado) - con o sin contenido
       else if (processed.match(/^-\s*\[x\]\s*(.*)$/i)) {
         const match = processed.match(/^-\s*\[x\]\s*(.*)$/i);
         if (match) {
           const content = match[1] || '';
-          // Procesar bold e italic en el contenido
+          // Procesar bold, italic y resaltados en el contenido
           let formatted = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
           formatted = formatted.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+          formatted = processHighlights(formatted);
           processed = `<div class="flex items-center gap-2 my-1"><input type="checkbox" checked disabled class="rounded border-gray-400 w-4 h-4" /><span class="line-through text-muted-foreground">${formatted || '&nbsp;'}</span></div>`;
         }
       }
@@ -277,24 +316,27 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
         const match = processed.match(/^-\s*\[\s*\]\s*(.*)$/);
         if (match) {
           const content = match[1] || '';
-          // Procesar bold e italic en el contenido
+          // Procesar bold, italic y resaltados en el contenido
           let formatted = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
           formatted = formatted.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+          formatted = processHighlights(formatted);
           processed = `<div class="flex items-center gap-2 my-1"><input type="checkbox" disabled class="rounded border-gray-400 w-4 h-4" /><span>${formatted || '&nbsp;'}</span></div>`;
         }
       }
       // Bullet lists
       else if (processed.startsWith('- ')) {
         let content = processed.slice(2);
-        // Procesar bold e italic
+        // Procesar bold, italic y resaltados
         content = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
         content = content.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+        content = processHighlights(content);
         processed = `<li class="ml-4 my-1">${content}</li>`;
       }
       else {
-        // Procesar bold e italic en texto normal
+        // Procesar bold, italic, resaltados en texto normal
         processed = processed.replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>');
         processed = processed.replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+        processed = processHighlights(processed);
         // Inline code
         processed = processed.replace(/`([^`]+)`/g, '<code class="bg-muted px-1.5 py-0.5 rounded text-sm">$1</code>');
       }
@@ -425,6 +467,7 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
                   setIsEditingNotes(prev => !prev);
                   if (isEditingNotes) {
                     setHeadingMenuOpen(false);
+                    setColorMenuOpen(false);
                   }
                 }}
                 className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
@@ -509,6 +552,68 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
                               <Heading3 className="h-4 w-4" />
                               Título 3
                             </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    <div className="h-6 w-px bg-border mx-1" />
+
+                    {/* Dropdown de colores de resaltado */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setColorMenuOpen(!colorMenuOpen)}
+                        className="p-2 rounded hover:bg-accent transition-colors flex items-center gap-1"
+                        title="Resaltar"
+                      >
+                        <span className="text-xs font-bold">🎨</span>
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      
+                      {colorMenuOpen && (
+                        <>
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setColorMenuOpen(false)}
+                          />
+                          <div className="absolute top-full left-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-2 px-2 z-20 grid grid-cols-3 gap-2 w-max">
+                            <button
+                              onClick={() => insertHighlight('yellow')}
+                              className="w-6 h-6 rounded bg-yellow-200 hover:ring-2 ring-foreground transition-all"
+                              title="Amarillo"
+                            />
+                            <button
+                              onClick={() => insertHighlight('pink')}
+                              className="w-6 h-6 rounded bg-pink-200 hover:ring-2 ring-foreground transition-all"
+                              title="Rosa"
+                            />
+                            <button
+                              onClick={() => insertHighlight('blue')}
+                              className="w-6 h-6 rounded bg-blue-200 hover:ring-2 ring-foreground transition-all"
+                              title="Azul"
+                            />
+                            <button
+                              onClick={() => insertHighlight('green')}
+                              className="w-6 h-6 rounded bg-green-200 hover:ring-2 ring-foreground transition-all"
+                              title="Verde"
+                            />
+                            <button
+                              onClick={() => insertHighlight('purple')}
+                              className="w-6 h-6 rounded bg-purple-200 hover:ring-2 ring-foreground transition-all"
+                              title="Púrpura"
+                            />
+                            <button
+                              onClick={() => insertHighlight('orange')}
+                              className="w-6 h-6 rounded bg-orange-200 hover:ring-2 ring-foreground transition-all"
+                              title="Naranja"
+                            />
+                            <button
+                              onClick={() => insertHighlight('red')}
+                              className="w-6 h-6 rounded bg-red-200 hover:ring-2 ring-foreground transition-all"
+                              title="Rojo"
+                            />
                           </div>
                         </>
                       )}
