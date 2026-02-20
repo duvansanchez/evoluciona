@@ -29,6 +29,7 @@ export default function GoalFocusModal({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   const intervalRef = useRef<number | null>(null);
+  const prevOpenRef = useRef(open);
 
   // Cargar datos del objetivo
   useEffect(() => {
@@ -43,6 +44,16 @@ export default function GoalFocusModal({
       setHasUnsavedChanges(false);
     }
   }, [open, goal]);
+
+  // Detectar cuando se cierra el modal y guardar si hay cambios
+  useEffect(() => {
+    if (prevOpenRef.current && !open && hasUnsavedChanges && goal) {
+      // El modal se está cerrando y hay cambios sin guardar
+      console.log('📤 Guardando cambios de reorden al cerrar modal...');
+      onSave(goal.id, { subGoals, focusTimeSeconds: seconds, focusNotes: notes.trim() });
+    }
+    prevOpenRef.current = open;
+  }, [open, hasUnsavedChanges, goal, subGoals, seconds, notes, onSave]);
 
   // Timer logic
   useEffect(() => {
@@ -132,6 +143,7 @@ export default function GoalFocusModal({
     const [removed] = newSubGoals.splice(source.index, 1);
     newSubGoals.splice(destination.index, 0, removed);
     
+    console.log('🔄 Subobjetivos reordenados:', newSubGoals.map((s, i) => `${i}: ${s.title}`));
     setSubGoals(newSubGoals);
     setHasUnsavedChanges(true);
   };
