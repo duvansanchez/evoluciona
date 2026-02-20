@@ -349,15 +349,51 @@ export default function Goals() {
         console.error('Error updating goal:', error);
       }
 
-      data.subGoals.forEach((sub: SubGoal, index: number) => {
-        if (sub.id.startsWith('new-')) return;
-        void persistSubGoalUpdate(sub.id, {
-          title: sub.title,
-          completed: sub.completed,
-          focusTimeSeconds: sub.focusTimeSeconds,
-          notes: sub.notes,
-        }, index); // Pasar el índice como el nuevo orden
-      });
+      const previousSubGoals = editingGoal.subGoals || [];
+      const currentSubGoals: SubGoal[] = data.subGoals || [];
+
+      const removedSubGoals = previousSubGoals.filter(prevSub =>
+        !currentSubGoals.some(currSub => currSub.id === prevSub.id)
+      );
+
+      await Promise.all(
+        removedSubGoals
+          .filter(sub => !sub.id.startsWith('new-'))
+          .map(async sub => {
+            try {
+              await goalsAPI.deleteSubGoal(sub.id);
+              console.log('🗑️ SubGoal deleted:', sub.id);
+            } catch (deleteError) {
+              console.error('❌ Error deleting subgoal:', sub.id, deleteError);
+            }
+          })
+      );
+
+      await Promise.all(
+        currentSubGoals.map(async (sub: SubGoal, index: number) => {
+          if (sub.id.startsWith('new-')) {
+            try {
+              const createdSubGoal = await goalsAPI.createSubGoal(editingGoal.id, {
+                titulo: sub.title,
+                completado: sub.completed || false,
+                notas: sub.notes || null,
+                orden: index,
+              });
+              console.log('✅ SubGoal created in edit:', createdSubGoal.id);
+            } catch (createError) {
+              console.error('❌ Error creating subgoal in edit:', createError);
+            }
+            return;
+          }
+
+          await persistSubGoalUpdate(sub.id, {
+            title: sub.title,
+            completed: sub.completed,
+            focusTimeSeconds: sub.focusTimeSeconds,
+            notes: sub.notes,
+          }, index);
+        })
+      );
     } else {
       // Create new goal in backend
       // Mapear categorías del frontend al backend
