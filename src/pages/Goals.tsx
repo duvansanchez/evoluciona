@@ -314,14 +314,14 @@ export default function Goals() {
         console.error('Error updating goal:', error);
       }
 
-      data.subGoals.forEach((sub: SubGoal) => {
+      data.subGoals.forEach((sub: SubGoal, index: number) => {
         if (sub.id.startsWith('new-')) return;
         void persistSubGoalUpdate(sub.id, {
           title: sub.title,
           completed: sub.completed,
           focusTimeSeconds: sub.focusTimeSeconds,
           notes: sub.notes,
-        });
+        }, index); // Pasar el índice como el nuevo orden
       });
     } else {
       // Create new goal in backend
@@ -357,13 +357,15 @@ export default function Goals() {
         
         // Crear subobjetivos nuevos en el backend
         const newSubGoals: SubGoal[] = [];
-        for (const subGoal of data.subGoals) {
+        for (let i = 0; i < data.subGoals.length; i++) {
+          const subGoal = data.subGoals[i];
           if (subGoal.id.startsWith('new-')) {
             try {
               const createdSubGoal = await goalsAPI.createSubGoal(createdGoal.id, {
                 titulo: subGoal.title,
                 completado: subGoal.completed || false,
                 notas: subGoal.notes || null,
+                orden: i, // Guardar el índice como orden
               });
               console.log('✅ SubGoal created:', createdSubGoal);
               newSubGoals.push({
