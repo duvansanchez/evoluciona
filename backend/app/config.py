@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     DB_USER: Optional[str] = None
     DB_PASSWORD: Optional[str] = None
     DB_DRIVER: str = "ODBC Driver 17 for SQL Server"
+
+    # Email (Gmail SMTP)
+    GMAIL_USER: str = ""
+    GMAIL_APP_PASSWORD: str = ""
+    REPORT_RECIPIENT: str = ""  # Puede ser el mismo GMAIL_USER
     
     class Config:
         env_file = ".env"
@@ -38,10 +43,9 @@ class Settings(BaseSettings):
         else:
             # Conexión con Windows Authentication
             return (
-                f"mssql+pyodbc:///?odq_user=&odq_passwd=&"
-                f"driver={self.DB_DRIVER.replace(' ', '+')}&"
+                f"mssql+pyodbc:///?driver={self.DB_DRIVER.replace(' ', '+')}&"
                 f"server={self.DB_SERVER}&database={self.DB_NAME}&"
-                f"charset=utf8"
+                f"Trusted_Connection=yes&charset=utf8"
             )
 
 

@@ -160,31 +160,34 @@ class DailySessionService:
     
     @staticmethod
     def save_responses(db: Session, date: str, session_data: DailySessionCreate) -> DailyQuestionsSession:
-        """Guardar respuestas a una sesión diaria."""
-        # Obtener o crear sesión
+        """Guardar respuestas a una sesión diaria usando SQL puro."""
         session = DailySessionService.get_or_create_session(db, date)
-        
-        # Eliminar respuestas previas para esta sesión
-        db.query(QuestionResponse).filter(
-            QuestionResponse.session_id == session.id
-        ).delete()
-        
-        # Guardar nuevas respuestas
+
+        # Eliminar respuestas previas del día usando SQL puro (evita mismatch ORM)
+        db.execute(
+            text("DELETE FROM response WHERE CAST(fecha AS DATE) = :date"),
+            {"date": date}
+        )
+
+        # Insertar respuestas con los nombres reales de columna
         answered_count = 0
+        now = datetime.utcnow()
         for response_data in session_data.responses:
-            response = QuestionResponse(
-                session_id=session.id,
-                question_id=response_data.question_id,
-                response=response_data.response,
-                answered_at=datetime.utcnow().isoformat(),
+            db.execute(
+                text("INSERT INTO response (pregunta_id, respuesta, fecha) VALUES (:qid, :resp, :fecha)"),
+                {
+                    "qid": int(response_data.question_id),
+                    "resp": response_data.response,
+                    "fecha": now,
+                }
             )
-            db.add(response)
             answered_count += 1
-        
-        # Actualizar contador
-        session.answered_questions = answered_count
-        session.completed_at = datetime.utcnow().isoformat()
-        
+
+        # Actualizar sesión
+        db.execute(
+            text("UPDATE daily_sessions SET answered_questions = :count, completed_at = :completed WHERE id = :sid"),
+            {"count": answered_count, "completed": now.isoformat(), "sid": session.id}
+        )
         db.commit()
         db.refresh(session)
         return session

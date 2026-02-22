@@ -26,7 +26,11 @@ try:
     
     from app.api import api_router
     print("✅ API router importado", flush=True)
-    
+
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    print("✅ APScheduler importado", flush=True)
+
 except Exception as e:
     print(f"❌ Error en importaciones: {e}", flush=True)
     import traceback
@@ -83,6 +87,46 @@ def docs_redirect():
 
 
 print("✅ ¡Aplicación FastAPI configurada exitosamente!", flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Scheduler: envia el informe semanal cada lunes a las 7:00 AM
+# ---------------------------------------------------------------------------
+
+def _scheduled_weekly_report():
+    """Job que corre el scheduler: genera y envia el informe de la semana anterior."""
+    try:
+        from app.db.database import get_session_factory
+        from app.services.stats_service import get_previous_week_range, build_weekly_report
+        from app.services.email_service import build_html_report, send_weekly_report
+
+        session_factory = get_session_factory()
+        db = session_factory()
+        try:
+            week_start, week_end = get_previous_week_range()
+            data = build_weekly_report(db, week_start, week_end)
+            html = build_html_report(data)
+            subject = f"Informe Semanal - {data['week_label']}"
+            ok = send_weekly_report(html, subject)
+            if ok:
+                logger.info(f"[Scheduler] Informe enviado: {data['week_label']}")
+            else:
+                logger.error("[Scheduler] Error enviando el informe semanal")
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error(f"[Scheduler] Error en job semanal: {exc}", exc_info=True)
+
+
+scheduler = BackgroundScheduler(timezone="America/Bogota")
+scheduler.add_job(
+    _scheduled_weekly_report,
+    CronTrigger(day_of_week="mon", hour=7, minute=0),
+    id="weekly_report",
+    replace_existing=True,
+)
+scheduler.start()
+logger.info("[Scheduler] Iniciado - informe semanal cada lunes a las 7:00 AM (America/Bogota)")
 
 
 if __name__ == "__main__":
