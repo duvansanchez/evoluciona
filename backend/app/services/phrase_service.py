@@ -3,6 +3,7 @@ Servicios para frases (Phrases y PhraseCategories).
 """
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.models.models import Phrase, PhraseCategory, PhraseSubcategory
 from app.schemas.schemas import (
     PhraseCategoryCreate, PhraseCategoryUpdate,
@@ -159,18 +160,39 @@ class PhraseService:
     
     @staticmethod
     def update_phrase(db: Session, phrase_id: str, phrase: PhraseUpdate) -> Optional[Phrase]:
-        """Actualizar frase."""
-        db_phrase = db.query(Phrase).filter(Phrase.id == phrase_id).first()
-        if not db_phrase:
+        """Actualizar frase usando SQL puro para evitar problemas de ORM con SQL Server."""
+        exists = db.execute(
+            text("SELECT id FROM frases WHERE id = :id"), {"id": phrase_id}
+        ).fetchone()
+        if not exists:
             return None
-        
+
+        field_map = {
+            'text': 'texto',
+            'author': 'autor',
+            'category_id': 'categoria_id',
+            'subcategory_id': 'subcategoria_id',
+            'notes': 'notas',
+            'active': 'activa',
+        }
+
         update_data = phrase.model_dump(exclude_unset=True)
+        if not update_data:
+            return db.query(Phrase).filter(Phrase.id == phrase_id).first()
+
+        set_parts = []
+        params = {"phrase_id": phrase_id}
         for field, value in update_data.items():
-            setattr(db_phrase, field, value)
-        
+            col = field_map.get(field, field)
+            param_key = f"p_{col}"
+            set_parts.append(f"{col} = :{param_key}")
+            params[param_key] = int(value) if isinstance(value, bool) else value
+
+        sql = f"UPDATE frases SET {', '.join(set_parts)} WHERE id = :phrase_id"
+        db.execute(text(sql), params)
         db.commit()
-        db.refresh(db_phrase)
-        return db_phrase
+
+        return db.query(Phrase).filter(Phrase.id == phrase_id).first()
     
     @staticmethod
     def delete_phrase(db: Session, phrase_id: str) -> bool:

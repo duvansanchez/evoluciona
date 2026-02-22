@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, MessageSquareQuote, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, X } from 'lucide-react';
 import type { Phrase, PhraseCategory } from '../../types';
 
 interface ReviewModalProps {
@@ -12,7 +12,14 @@ interface ReviewModalProps {
 
 export default function ReviewModal({ open, onOpenChange, phrases, categories, onReview }: ReviewModalProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showNotes, setShowNotes] = useState(false);
+  const [showNotes, setShowNotes] = useState(true);
+
+  useEffect(() => {
+    if (open) {
+      setCurrentIndex(0);
+      setShowNotes(true);
+    }
+  }, [open]);
 
   if (!open || phrases.length === 0) return null;
 
@@ -23,14 +30,12 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
   const handleNext = () => {
     if (currentIndex < phrases.length - 1) {
       setCurrentIndex(prev => prev + 1);
-      setShowNotes(false);
     }
   };
 
   const handlePrevious = () => {
     if (currentIndex > 0) {
       setCurrentIndex(prev => prev - 1);
-      setShowNotes(false);
     }
   };
 
@@ -47,8 +52,6 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
 
   const handleClose = () => {
     onOpenChange(false);
-    setCurrentIndex(0);
-    setShowNotes(false);
   };
 
   return (
@@ -91,54 +94,64 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
         />
       </div>
 
-      {/* Main Content */}
-      <div className="container mx-auto px-4 h-[calc(100vh-120px)] flex items-center justify-center">
-        <div className="w-full max-w-3xl">
-          {/* Quote Card */}
-          <div className="relative mb-8 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 p-12 shadow-lg border border-blue-100 dark:border-blue-900/30">
-            <MessageSquareQuote className="absolute top-6 left-6 h-12 w-12 text-blue-300 dark:text-blue-700 opacity-50" />
-            <div className="relative z-10">
-              <p className="text-2xl md:text-3xl leading-relaxed text-foreground italic font-light text-center mb-6">
-                "{currentPhrase.text}"
-              </p>
-              {currentPhrase.author && (
-                <p className="text-base font-medium text-muted-foreground text-right">
-                  — {currentPhrase.author}
+      {/* Main Content — scrollable, deja espacio para la barra fija inferior */}
+      <div className="h-[calc(100vh-88px)] overflow-y-auto">
+        <div className="container mx-auto px-4 py-8 pb-28">
+          <div className="w-full max-w-3xl mx-auto">
+            {/* Quote Card */}
+            <div className="relative mb-6 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 p-8 shadow-lg border border-blue-100 dark:border-blue-900/30">
+              <MessageSquareQuote className="absolute top-5 left-5 h-10 w-10 text-blue-300 dark:text-blue-700 opacity-50" />
+              <div className="relative z-10">
+                <p className="text-xl md:text-2xl leading-relaxed text-foreground italic font-light text-center mb-4">
+                  "{currentPhrase.text}"
                 </p>
+                {currentPhrase.author && (
+                  <p className="text-sm font-medium text-muted-foreground text-right">
+                    — {currentPhrase.author}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Badges */}
+            <div className="flex justify-center gap-2 mb-5">
+              {category && (
+                <span className="rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary">
+                  {category.name}
+                </span>
+              )}
+              {subcategory && (
+                <span className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-accent-foreground">
+                  {subcategory.name}
+                </span>
               )}
             </div>
-          </div>
 
-          {/* Badges */}
-          <div className="flex justify-center gap-2 mb-6">
-            {category && (
-              <span className="rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary">
-                {category.name}
-              </span>
-            )}
-            {subcategory && (
-              <span className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-accent-foreground">
-                {subcategory.name}
-              </span>
-            )}
-          </div>
-
-          {/* Notes */}
-          {currentPhrase.notes && (
-            <div className="mb-8 text-center">
-              <button
-                onClick={() => setShowNotes(!showNotes)}
-                className="text-sm text-primary hover:underline mb-3"
-              >
-                {showNotes ? 'Ocultar notas personales' : 'Ver notas personales'}
-              </button>
-              {showNotes && (
-                <div className="rounded-xl bg-muted/50 p-6 text-sm text-muted-foreground animate-fade-in max-w-2xl mx-auto">
-                  {currentPhrase.notes}
+            {/* Notes */}
+            {currentPhrase.notes && (
+              <div className="max-w-2xl mx-auto">
+                <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-muted/40">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <NotebookPen className="h-4 w-4" />
+                      <span className="text-xs font-semibold uppercase tracking-wide">Notas personales</span>
+                    </div>
+                    <button
+                      onClick={() => setShowNotes(!showNotes)}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      {showNotes ? 'Ocultar' : 'Mostrar'}
+                    </button>
+                  </div>
+                  {showNotes && (
+                    <div className="px-5 py-4 text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap animate-fade-in">
+                      {currentPhrase.notes}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

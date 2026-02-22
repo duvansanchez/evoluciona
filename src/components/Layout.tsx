@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { Target, BookOpen, BarChart3, Menu, X, Sparkles, MessageCircleQuestion } from 'lucide-react';
 import { useState } from 'react';
+import NotificationBell from './notifications/NotificationBell';
 
 const navItems = [
   { to: '/goals', label: 'Objetivos', icon: Target },
@@ -44,6 +45,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </NavLink>
             ))}
           </nav>
+
+          {/* Notification bell */}
+          <NotificationBell />
 
           {/* Mobile toggle */}
           <button

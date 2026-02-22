@@ -50,6 +50,7 @@ export default function Phrases() {
   const [showRandomModal, setShowRandomModal] = useState(false);
   const [randomPhrase, setRandomPhrase] = useState<Phrase | null>(null);
   const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   // Cargar frases y categorías del backend
   useEffect(() => {
@@ -104,6 +105,8 @@ export default function Phrases() {
 
   // Métricas dinámicas basadas en el filtro actual
   const filteredActive = filtered.filter(p => p.active);
+  const filteredInactive = filtered.filter(p => !p.active);
+  const filteredVisible = showInactive ? filtered : filteredActive;
   const filteredTotalReviews = filtered.reduce((sum, p) => sum + p.reviewCount, 0);
   const filteredReviewedToday = filtered.filter(p => {
     if (!p.lastReviewedAt) return false;
@@ -123,28 +126,26 @@ export default function Phrases() {
   };
 
   const handleReviewAll = () => {
-    if (filtered.length === 0) return;
+    if (filteredActive.length === 0) return;
     setShowReviewModal(true);
   };
 
   const handleRandomPhrase = () => {
-    if (filtered.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * filtered.length);
-    const selectedPhrase = filtered[randomIndex];
-    setRandomPhrase(selectedPhrase);
+    if (filteredActive.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * filteredActive.length);
+    setRandomPhrase(filteredActive[randomIndex]);
     setShowRandomModal(true);
   };
 
   const handleNewRandomPhrase = () => {
-    if (filtered.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * filtered.length);
-    const selectedPhrase = filtered[randomIndex];
-    setRandomPhrase(selectedPhrase);
+    if (filteredActive.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * filteredActive.length);
+    setRandomPhrase(filteredActive[randomIndex]);
   };
 
   const getReviewButtonText = () => {
-    if (filtered.length === 0) return 'Repasar';
-    
+    if (filteredActive.length === 0) return 'Repasar';
+
     let text = 'Repasar';
     if (selectedCategory !== 'all') {
       const cat = categories.find(c => c.id === selectedCategory);
@@ -157,7 +158,7 @@ export default function Phrases() {
     } else {
       text = 'Repasar Todas';
     }
-    return `${text} (${filtered.length})`;
+    return `${text} (${filteredActive.length})`;
   };
 
   const handleCreatePhrase = () => {
@@ -168,6 +169,35 @@ export default function Phrases() {
   const handleEditPhrase = (phrase: Phrase) => {
     setEditingPhrase(phrase);
     setShowPhraseModal(true);
+  };
+
+  const handleToggleActive = async (id: string) => {
+    const target = phrases.find(p => p.id === id);
+    if (!target) return;
+
+    const nextActive = !target.active;
+    setPhrases(prev => prev.map(p => p.id === id ? { ...p, active: nextActive } : p));
+
+    try {
+      await phrasesAPI.updatePhrase(id, { active: nextActive });
+    } catch (error) {
+      console.error('Error toggling phrase active:', error);
+      setPhrases(prev => prev.map(p => p.id === id ? target : p));
+    }
+  };
+
+  const handleDeletePhrase = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta frase?')) return;
+
+    const prev = phrases;
+    setPhrases(p => p.filter(x => x.id !== id));
+
+    try {
+      await phrasesAPI.deletePhrase(id);
+    } catch (error) {
+      console.error('Error deleting phrase:', error);
+      setPhrases(prev);
+    }
   };
 
   const handleSavePhrase = (formData: any) => {
@@ -266,7 +296,18 @@ export default function Phrases() {
           </select>
         )}
 
-        <span className="text-xs text-muted-foreground">{filtered.length} frases</span>
+        <button
+          onClick={() => setShowInactive(v => !v)}
+          className={`whitespace-nowrap px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+            showInactive
+              ? 'bg-muted text-foreground border-border'
+              : 'bg-background text-muted-foreground border-input hover:text-foreground hover:bg-muted'
+          }`}
+        >
+          {showInactive ? 'Ocultar inactivas' : `Mostrar inactivas (${filteredInactive.length})`}
+        </button>
+
+        <span className="text-xs text-muted-foreground">{filteredVisible.length} frases</span>
       </div>
 
       {/* Subcategory description */}
@@ -278,18 +319,20 @@ export default function Phrases() {
 
       {/* Phrases Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map(phrase => (
-          <PhraseCard 
-            key={phrase.id} 
-            phrase={phrase} 
-            categories={categories} 
+        {filteredVisible.map(phrase => (
+          <PhraseCard
+            key={phrase.id}
+            phrase={phrase}
+            categories={categories}
             onReview={handleReview}
             onEdit={handleEditPhrase}
+            onToggleActive={handleToggleActive}
+            onDelete={handleDeletePhrase}
           />
         ))}
       </div>
 
-      {filtered.length === 0 && (
+      {filteredVisible.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
           <p className="text-muted-foreground font-medium">No hay frases en esta categoría</p>
@@ -310,7 +353,7 @@ export default function Phrases() {
       <ReviewModal
         open={showReviewModal}
         onOpenChange={setShowReviewModal}
-        phrases={filtered}
+        phrases={filteredActive}
         categories={categories}
         onReview={handleReview}
       />

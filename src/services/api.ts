@@ -123,7 +123,7 @@ export const phrasesAPI = {
     let url = `${API_BASE_URL}/phrases?page=${page}&page_size=${page_size}`;
     if (categoryId) url += `&category_id=${categoryId}`;
     if (subcategoryId) url += `&subcategory_id=${subcategoryId}`;
-    
+
     const response = await fetch(url);
     if (!response.ok) throw new Error('Error fetching phrases');
     return response.json() as Promise<PaginatedResponse<any>>;
@@ -138,6 +138,24 @@ export const phrasesAPI = {
   getCategoriesTree: async () => {
     const response = await fetch(`${API_BASE_URL}/phrases/categories-tree`);
     if (!response.ok) throw new Error('Error fetching phrase categories tree');
+    return response.json();
+  },
+
+  updatePhrase: async (phraseId: number | string, payload: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/phrases/${phraseId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Error updating phrase');
+    return response.json();
+  },
+
+  deletePhrase: async (phraseId: number | string) => {
+    const response = await fetch(`${API_BASE_URL}/phrases/${phraseId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error deleting phrase');
     return response.json();
   },
 };

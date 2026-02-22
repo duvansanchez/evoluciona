@@ -7,9 +7,11 @@ interface PhraseCardProps {
   categories: PhraseCategory[];
   onReview?: (id: string) => void;
   onEdit?: (phrase: Phrase) => void;
+  onToggleActive?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-export default function PhraseCard({ phrase, categories, onReview, onEdit }: PhraseCardProps) {
+export default function PhraseCard({ phrase, categories, onReview, onEdit, onToggleActive, onDelete }: PhraseCardProps) {
   const [showNotes, setShowNotes] = useState(false);
   const category = categories.find(c => c.id === phrase.categoryId);
   const subcategory = category?.subcategories.find(s => s.id === phrase.subcategoryId);
@@ -83,16 +85,25 @@ export default function PhraseCard({ phrase, categories, onReview, onEdit }: Phr
           Repasar
         </button>
         <div className="flex-1" />
-        <button className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors">
+        <button
+          onClick={() => onToggleActive?.(phrase.id)}
+          className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+          title={phrase.active ? 'Desactivar' : 'Activar'}
+        >
           {phrase.active ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
         <button
           onClick={() => onEdit?.(phrase)}
           className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+          title="Editar"
         >
           <Edit2 className="h-3.5 w-3.5" />
         </button>
-        <button className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+        <button
+          onClick={() => onDelete?.(phrase.id)}
+          className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          title="Eliminar"
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
