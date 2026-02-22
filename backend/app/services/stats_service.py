@@ -30,31 +30,37 @@ def build_weekly_report(db: Session, week_start: date, week_end: date) -> Dict[s
     week_start: lunes
     week_end: domingo
     """
-    # --- Sesiones del periodo ---
-    sessions_rows = db.execute(
+    # --- Respuestas agrupadas por dia (fuente de verdad para completitud) ---
+    daily_counts_rows = db.execute(
         text("""
-            SELECT date, answered_questions, total_questions, completed_at
-            FROM daily_sessions
-            WHERE date >= :start AND date <= :end
+            SELECT CAST(date AS DATE) as dia, COUNT(DISTINCT question_id) as answered
+            FROM response
+            WHERE CAST(date AS DATE) >= :start AND CAST(date AS DATE) <= :end
+            GROUP BY CAST(date AS DATE)
         """),
         {"start": week_start.isoformat(), "end": week_end.isoformat()}
     ).fetchall()
+    daily_counts = {str(row[0]): row[1] for row in daily_counts_rows}
 
-    sessions_by_date = {row[0]: row for row in sessions_rows}
+    # Total de preguntas activas (referencia para calcular completitud)
+    total_active = db.execute(
+        text("SELECT COUNT(*) FROM question WHERE active = 1")
+    ).scalar() or 1
+
     days_total = 7
-    days_completed = len([r for r in sessions_rows if r[1] and r[1] > 0])
+    days_completed = len(daily_counts)
 
     # Construir registro dia a dia
     day_records = []
     cursor = week_start
     while cursor <= week_end:
-        ds = sessions_by_date.get(cursor.isoformat())
+        answered = daily_counts.get(cursor.isoformat(), 0)
         day_records.append({
             "date": cursor.isoformat(),
             "weekday": cursor.strftime("%a"),
-            "completed": bool(ds and ds[1] and ds[1] > 0),
-            "answered": ds[1] if ds else 0,
-            "total": ds[2] if ds else 0,
+            "completed": answered > 0,
+            "answered": answered,
+            "total": total_active,
         })
         cursor += timedelta(days=1)
 

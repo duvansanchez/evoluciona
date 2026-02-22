@@ -71,11 +71,16 @@ def _question_block(q: Dict) -> str:
     elif qtype in ("radio", "select", "checkbox"):
         for item in q.get("distribution", []):
             html += f"""
-            <div style="margin-bottom:12px;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                <span style="font-size:14px;color:#111827;">{item['label']}</span>
-                <span style="font-size:13px;color:#6b7280;">{item['count']} &times; &nbsp;({item['pct']}%)</span>
-              </div>
+            <div style="margin-bottom:16px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:7px;">
+                <tr>
+                  <td style="font-size:14px;color:#111827;font-weight:500;">{item['label']}</td>
+                  <td align="right" style="white-space:nowrap;padding-left:16px;">
+                    <span style="display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:700;padding:2px 10px;border-radius:20px;margin-right:6px;">{item['count']}x</span>
+                    <span style="display:inline-block;background:{header_color};color:white;font-size:13px;font-weight:700;padding:2px 10px;border-radius:20px;">{item['pct']}%</span>
+                  </td>
+                </tr>
+              </table>
               {_bar(item['pct'], header_color)}
             </div>
             """
