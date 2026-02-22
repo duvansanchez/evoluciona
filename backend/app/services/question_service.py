@@ -163,10 +163,10 @@ class DailySessionService:
         """Guardar respuestas a una sesión diaria usando SQL puro."""
         session = DailySessionService.get_or_create_session(db, date)
 
-        # Eliminar respuestas previas del día usando SQL puro (evita mismatch ORM)
+        # Eliminar respuestas previas del día usando SQL puro
         db.execute(
-            text("DELETE FROM response WHERE CAST(fecha AS DATE) = :date"),
-            {"date": date}
+            text("DELETE FROM response WHERE CAST(date AS DATE) = :d"),
+            {"d": date}
         )
 
         # Insertar respuestas con los nombres reales de columna
@@ -174,11 +174,11 @@ class DailySessionService:
         now = datetime.utcnow()
         for response_data in session_data.responses:
             db.execute(
-                text("INSERT INTO response (pregunta_id, respuesta, fecha) VALUES (:qid, :resp, :fecha)"),
+                text("INSERT INTO response (question_id, response, date) VALUES (:qid, :resp, :dt)"),
                 {
                     "qid": int(response_data.question_id),
                     "resp": response_data.response,
-                    "fecha": now,
+                    "dt": now,
                 }
             )
             answered_count += 1

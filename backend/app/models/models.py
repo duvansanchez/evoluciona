@@ -158,17 +158,17 @@ class Question(Base):
 class QuestionResponse(Base):
     """Modelo para respuestas a preguntas."""
     __tablename__ = "response"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-    pregunta_id = Column(Integer, ForeignKey("question.id"), nullable=False)
-    respuesta = Column(Text, nullable=True)
-    fecha = Column(DateTime, nullable=True)
-    usuario_id = Column(Integer, nullable=True)
-    hora_inicio = Column(DateTime, nullable=True)
-    tiempo_respuesta = Column(Integer, nullable=True)
-    
+    question_id = Column(Integer, ForeignKey("question.id"), nullable=False)
+    response = Column(Text, nullable=True)
+    date = Column(DateTime, nullable=True)
+    user_id = Column(Integer, nullable=True)
+    start_time = Column(DateTime, nullable=True)
+    response_time = Column(Integer, nullable=True)
+
     # Relaciones
-    question = relationship("Question", back_populates="responses", foreign_keys=[pregunta_id])
+    question = relationship("Question", back_populates="responses", foreign_keys=[question_id])
 
 
 class PhraseSubcategory(Base):

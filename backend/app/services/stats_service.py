@@ -66,10 +66,10 @@ def build_weekly_report(db: Session, week_start: date, week_end: date) -> Dict[s
     # --- Respuestas del periodo ---
     responses = db.execute(
         text("""
-            SELECT r.pregunta_id, r.respuesta, CAST(r.fecha AS DATE) as dia
+            SELECT r.question_id, r.response, CAST(r.date AS DATE) as dia
             FROM response r
-            WHERE CAST(r.fecha AS DATE) >= :start
-              AND CAST(r.fecha AS DATE) <= :end
+            WHERE CAST(r.date AS DATE) >= :start
+              AND CAST(r.date AS DATE) <= :end
         """),
         {"start": week_start.isoformat(), "end": week_end.isoformat()}
     ).fetchall()
