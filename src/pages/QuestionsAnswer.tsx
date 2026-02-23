@@ -11,7 +11,12 @@ export default function QuestionsAnswer() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const activeQuestions = questions.filter(q => q.active).sort((a, b) => a.order - b.order);
+  const activeQuestions = questions.filter(q => q.active).sort((a, b) => {
+    const aSaved = savedQuestions.has(a.id) ? 1 : 0;
+    const bSaved = savedQuestions.has(b.id) ? 1 : 0;
+    if (aSaved !== bSaved) return aSaved - bSaved;
+    return a.order - b.order;
+  });
 
   const today = new Date().toLocaleDateString('es-ES', {
     weekday: 'long',
