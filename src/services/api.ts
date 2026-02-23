@@ -280,6 +280,15 @@ export const questionsAPI = {
     if (!response.ok) throw new Error('Error saving daily responses');
     return response.json();
   },
+  saveSingleResponse: async (date: string, questionId: string, response: string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/responses/${questionId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response }),
+    });
+    if (!r.ok) throw new Error('Error saving response');
+    return r.json();
+  },
 };
 
 /**

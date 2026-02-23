@@ -4,15 +4,42 @@ Endpoints para preguntas y sesiones diarias.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.db.database import get_db
 from app.schemas.schemas import (
     QuestionCreate, QuestionUpdate, QuestionResponse,
     DailySessionCreate, DailySessionResponse,
-    QuestionsPaginatedResponse
+    QuestionsPaginatedResponse, SingleResponseCreate
 )
 from app.services.question_service import QuestionService, DailySessionService
 from typing import List
 import math
+
+
+def _build_session_response(session, db: Session, date: str) -> dict:
+    """Construye el dict de respuesta de sesión incluyendo las respuestas guardadas del día."""
+    rows = db.execute(
+        text("SELECT id, question_id, response, date FROM response WHERE CAST(date AS DATE) = :d"),
+        {"d": date}
+    ).fetchall()
+
+    return {
+        "id": session.id,
+        "date": session.date,
+        "total_questions": session.total_questions,
+        "answered_questions": session.answered_questions,
+        "completed_at": session.completed_at,
+        "created_at": session.created_at or "",
+        "responses": [
+            {
+                "id": str(row[0]),
+                "question_id": str(row[1]),
+                "response": row[2] or "",
+                "answered_at": str(row[3]) if row[3] else "",
+            }
+            for row in rows
+        ],
+    }
 
 router = APIRouter(prefix="/api", tags=["questions"])
 
@@ -89,7 +116,7 @@ def get_daily_session(date: str, db: Session = Depends(get_db)):
     Formato de fecha: YYYY-MM-DD
     """
     session = DailySessionService.get_or_create_session(db, date)
-    return session
+    return _build_session_response(session, db, date)
 
 
 @router.post("/daily-sessions/{date}/responses", response_model=DailySessionResponse)
@@ -100,6 +127,19 @@ def save_daily_responses(date: str, session_data: DailySessionCreate, db: Sessio
     """
     try:
         session = DailySessionService.save_responses(db, date, session_data)
-        return session
+        return _build_session_response(session, db, date)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/daily-sessions/{date}/responses/{question_id}")
+def save_single_response(date: str, question_id: str, data: SingleResponseCreate, db: Session = Depends(get_db)):
+    """
+    Guardar o reemplazar la respuesta de una sola pregunta para un día dado.
+    Formato de fecha: YYYY-MM-DD
+    """
+    try:
+        DailySessionService.save_single_response(db, date, question_id, data.response)
+        return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

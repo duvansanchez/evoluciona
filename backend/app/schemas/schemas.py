@@ -273,6 +273,11 @@ class QuestionResponseCreate(BaseModel):
     response: str  # Para multi-select, enviar como JSON string
 
 
+class SingleResponseCreate(BaseModel):
+    """Crear/actualizar una sola respuesta a una pregunta."""
+    response: str
+
+
 class QuestionResponseData(BaseModel):
     """Datos de respuesta a pregunta."""
     id: str
@@ -297,8 +302,8 @@ class DailySessionResponse(BaseModel):
     answered_questions: int
     completed_at: Optional[str] = None
     responses: List[QuestionResponseData] = []
-    created_at: str
-    
+    created_at: Optional[str] = None
+
     class Config:
         from_attributes = True
 

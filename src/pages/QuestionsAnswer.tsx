@@ -1,26 +1,39 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Save } from 'lucide-react';
+import { CheckCircle2, Clock, Save, AlertCircle } from 'lucide-react';
 import { questionsAPI } from '@/services/api';
 import type { Question } from '@/types';
 
 export default function QuestionsAnswer() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Record<string, string | string[]>>({});
-  const [saved, setSaved] = useState(false);
+  const [savedQuestions, setSavedQuestions] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const activeQuestions = questions.filter(q => q.active).sort((a, b) => a.order - b.order);
 
-  const today = new Date().toLocaleDateString('es-ES', { 
-    weekday: 'long', 
-    year: 'numeric', 
-    month: 'long', 
-    day: 'numeric' 
+  const today = new Date().toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
   });
 
-  const answeredCount = Object.keys(responses).length;
+  const todayKey = new Date().toISOString().split('T')[0];
+
+  const answeredCount = activeQuestions.filter(q => {
+    const v = responses[q.id];
+    return v !== undefined && (Array.isArray(v) ? v.length > 0 : v !== '');
+  }).length;
   const totalCount = activeQuestions.length;
   const progress = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
+
+  // Preguntas que tienen respuesta en el formulario actual (para el modal de confirmación)
+  const pendingToSave = activeQuestions.filter(q => {
+    const v = responses[q.id];
+    return v !== undefined && (Array.isArray(v) ? v.length > 0 : v !== '');
+  });
 
   const isDailyQuestion = (item: any): boolean => {
     const frequency = (item?.frecuencia ?? '').toString().trim().toLowerCase();
@@ -36,13 +49,8 @@ export default function QuestionsAnswer() {
         const mapped = response.items.filter(isDailyQuestion).map((item: any): Question => {
           let parsedOptions = [] as Question['options'];
           if (item.options) {
-            try {
-              parsedOptions = JSON.parse(item.options);
-            } catch {
-              parsedOptions = [];
-            }
+            try { parsedOptions = JSON.parse(item.options); } catch { parsedOptions = []; }
           }
-
           return {
             id: item.id.toString(),
             title: item.text,
@@ -58,23 +66,24 @@ export default function QuestionsAnswer() {
         });
         setQuestions(mapped);
 
-        const todayKey = new Date().toISOString().split('T')[0];
+        // Cargar respuestas guardadas del día
         const session = await questionsAPI.getDailySession(todayKey);
-        const initialResponses: Record<string, string | string[]> = {};
+const initialResponses: Record<string, string | string[]> = {};
+        const alreadySaved = new Set<string>();
+
         session.responses?.forEach((r: any) => {
           if (!r.question_id) return;
           const raw = r.response ?? '';
+          let parsed: string | string[] = raw;
           if (typeof raw === 'string' && raw.trim().startsWith('[')) {
-            try {
-              initialResponses[r.question_id.toString()] = JSON.parse(raw);
-              return;
-            } catch {
-              // Fallback to raw string
-            }
+            try { parsed = JSON.parse(raw); } catch { /* noop */ }
           }
-          initialResponses[r.question_id.toString()] = raw;
+          initialResponses[r.question_id.toString()] = parsed;
+          if (raw !== '') alreadySaved.add(r.question_id.toString());
         });
+
         setResponses(initialResponses);
+        setSavedQuestions(alreadySaved);
       } catch (error) {
         console.error('Error loading questions:', error);
       } finally {
@@ -87,24 +96,49 @@ export default function QuestionsAnswer() {
 
   const handleResponse = (questionId: string, value: string | string[]) => {
     setResponses(prev => ({ ...prev, [questionId]: value }));
-    setSaved(false);
+    // Marcar como no guardada si el usuario modificó la respuesta
+    setSavedQuestions(prev => { const s = new Set(prev); s.delete(questionId); return s; });
   };
 
-  const handleSave = async () => {
+  const handleSaveClick = () => {
+    if (pendingToSave.length === 0) return;
+    setShowConfirm(true);
+  };
+
+  const handleConfirmSave = async () => {
     try {
-      const todayKey = new Date().toISOString().split('T')[0];
+      setSaving(true);
       const payload = {
-        responses: Object.entries(responses).map(([questionId, value]) => ({
-          question_id: questionId,
-          response: Array.isArray(value) ? JSON.stringify(value) : value ?? '',
-        })),
+        responses: Object.entries(responses)
+          .filter(([, v]) => v !== undefined && (Array.isArray(v) ? v.length > 0 : v !== ''))
+          .map(([questionId, value]) => ({
+            question_id: questionId,
+            response: Array.isArray(value) ? JSON.stringify(value) : value ?? '',
+          })),
       };
       await questionsAPI.saveDailyResponses(todayKey, payload);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      // Marcar todas las respondidas como guardadas
+      const newSaved = new Set<string>(payload.responses.map(r => r.question_id));
+      setSavedQuestions(newSaved);
+      setShowConfirm(false);
     } catch (error) {
       console.error('Error saving responses:', error);
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const getResponseLabel = (question: Question, value: string | string[] | undefined): string => {
+    if (!value) return '';
+    if (Array.isArray(value)) {
+      return value
+        .map(v => question.options?.find(o => o.value === v)?.label ?? v)
+        .join(', ');
+    }
+    if (question.type === 'select' || question.type === 'radio') {
+      return question.options?.find(o => o.value === value)?.label ?? value;
+    }
+    return value.length > 60 ? value.slice(0, 60) + '…' : value;
   };
 
   return (
@@ -124,10 +158,8 @@ export default function QuestionsAnswer() {
               <span className="text-sm font-semibold">{answeredCount}/{totalCount}</span>
             </div>
           </div>
-
-          {/* Progress bar */}
           <div className="relative h-2 bg-muted rounded-full overflow-hidden">
-            <div 
+            <div
               className="absolute inset-y-0 left-0 bg-primary transition-all duration-500 rounded-full"
               style={{ width: `${progress}%` }}
             />
@@ -145,65 +177,127 @@ export default function QuestionsAnswer() {
                 question={question}
                 index={index + 1}
                 value={responses[question.id]}
+                isSaved={savedQuestions.has(question.id)}
                 onChange={(value) => handleResponse(question.id, value)}
               />
             ))
           )}
         </div>
 
-        {/* Save button */}
-        {answeredCount > 0 && (
-          <div className="sticky bottom-6 flex justify-center">
+        {/* Guardar button */}
+        {!loading && (
+          <div className="sticky bottom-6 flex justify-center pb-2">
             <button
-              onClick={handleSave}
-              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
-                saved 
-                  ? 'bg-success hover:bg-success/90' 
-                  : 'bg-primary hover:bg-primary/90 hover:scale-105'
+              onClick={handleSaveClick}
+              disabled={answeredCount === 0}
+              className={`flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
+                answeredCount > 0
+                  ? 'bg-primary hover:bg-primary/90 hover:scale-105'
+                  : 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
               }`}
             >
-              {saved ? (
-                <>
-                  <CheckCircle2 className="h-5 w-5" />
-                  Guardado
-                </>
-              ) : (
-                <>
-                  <Save className="h-5 w-5" />
-                  Guardar Respuestas
-                </>
-              )}
+              <Save className="h-5 w-5" />
+              Guardar Respuestas
             </button>
           </div>
         )}
       </div>
+
+      {/* Confirmation modal */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-md border border-border">
+            {/* Modal header */}
+            <div className="flex items-center gap-3 p-6 border-b border-border">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <AlertCircle className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">
+                  ¿Guardar respuestas?
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Se guardarán {pendingToSave.length} {pendingToSave.length === 1 ? 'respuesta' : 'respuestas'}
+                </p>
+              </div>
+            </div>
+
+            {/* List of questions to save */}
+            <div className="p-6 space-y-3 max-h-72 overflow-y-auto">
+              {pendingToSave.map((q, i) => (
+                <div key={q.id} className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold mt-0.5">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground leading-snug">{q.title}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                      {getResponseLabel(q, responses[q.id])}
+                    </p>
+                  </div>
+                  <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+                </div>
+              ))}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 p-6 pt-0">
+              <button
+                onClick={() => setShowConfirm(false)}
+                disabled={saving}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-border text-foreground font-medium hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                disabled={saving}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving ? (
+                  <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function QuestionCard({ 
-  question, 
-  index, 
-  value, 
-  onChange 
-}: { 
-  question: Question; 
-  index: number; 
+function QuestionCard({
+  question,
+  index,
+  value,
+  isSaved,
+  onChange,
+}: {
+  question: Question;
+  index: number;
   value: string | string[] | undefined;
+  isSaved: boolean;
   onChange: (value: string | string[]) => void;
 }) {
   const isAnswered = value !== undefined && (Array.isArray(value) ? value.length > 0 : value !== '');
 
   return (
     <div className={`bg-card rounded-xl p-6 border transition-all ${
-      isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
+      isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
     }`}>
       {/* Question header */}
       <div className="flex items-start gap-3 mb-4">
         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-          isAnswered ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+          isSaved
+            ? 'bg-green-500 text-white'
+            : isAnswered
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground'
         }`}>
-          {index}
+          {isSaved ? <CheckCircle2 className="h-4 w-4" /> : index}
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold text-foreground mb-1">
@@ -214,6 +308,11 @@ function QuestionCard({
             <p className="text-sm text-muted-foreground">{question.description}</p>
           )}
         </div>
+        {isSaved && (
+          <span className="flex-shrink-0 text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+            Guardada
+          </span>
+        )}
       </div>
 
       {/* Question input */}
@@ -267,7 +366,6 @@ function QuestionCard({
             {question.options?.map(opt => {
               const selectedValues = (value as string[]) || [];
               const isChecked = selectedValues.includes(opt.value);
-              
               return (
                 <label
                   key={opt.id}
@@ -278,11 +376,10 @@ function QuestionCard({
                     value={opt.value}
                     checked={isChecked}
                     onChange={(e) => {
-                      if (e.target.checked) {
-                        onChange([...selectedValues, opt.value]);
-                      } else {
-                        onChange(selectedValues.filter(v => v !== opt.value));
-                      }
+                      const next = e.target.checked
+                        ? [...selectedValues, opt.value]
+                        : selectedValues.filter(v => v !== opt.value);
+                      onChange(next);
                     }}
                     className="h-4 w-4 rounded text-primary focus:ring-2 focus:ring-primary/50"
                   />

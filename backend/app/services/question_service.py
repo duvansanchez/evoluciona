@@ -9,6 +9,7 @@ from app.schemas.schemas import QuestionCreate, QuestionUpdate
 from datetime import datetime
 from typing import Optional, List, Tuple
 import json
+import uuid
 
 
 class QuestionService:
@@ -142,9 +143,11 @@ class DailySessionService:
         total_questions = db.query(Question).filter(Question.active == True).count()
         
         session = DailyQuestionsSession(
+            id=str(uuid.uuid4()),
             date=date,
             total_questions=total_questions,
             answered_questions=0,
+            created_at=datetime.utcnow().isoformat(),
         )
         db.add(session)
         db.commit()
@@ -160,19 +163,16 @@ class DailySessionService:
     
     @staticmethod
     def save_responses(db: Session, date: str, session_data: DailySessionCreate) -> DailyQuestionsSession:
-        """Guardar respuestas a una sesión diaria usando SQL puro."""
+        """Guardar respuestas a una sesión diaria usando upsert por pregunta."""
         session = DailySessionService.get_or_create_session(db, date)
-
-        # Eliminar respuestas previas del día usando SQL puro
-        db.execute(
-            text("DELETE FROM response WHERE CAST(date AS DATE) = :d"),
-            {"d": date}
-        )
-
-        # Insertar respuestas con los nombres reales de columna
-        answered_count = 0
         now = datetime.utcnow()
+
+        # Upsert por pregunta: borrar sólo la de ese question_id y reinsertar
         for response_data in session_data.responses:
+            db.execute(
+                text("DELETE FROM response WHERE question_id = :qid AND CAST(date AS DATE) = :d"),
+                {"qid": int(response_data.question_id), "d": date}
+            )
             db.execute(
                 text("INSERT INTO response (question_id, response, date) VALUES (:qid, :resp, :dt)"),
                 {
@@ -181,17 +181,49 @@ class DailySessionService:
                     "dt": now,
                 }
             )
-            answered_count += 1
+
+        # Recalcular total de respondidas del día
+        count = db.execute(
+            text("SELECT COUNT(*) FROM response WHERE CAST(date AS DATE) = :d"),
+            {"d": date}
+        ).scalar()
 
         # Actualizar sesión
         db.execute(
             text("UPDATE daily_sessions SET answered_questions = :count, completed_at = :completed WHERE id = :sid"),
-            {"count": answered_count, "completed": now.isoformat(), "sid": session.id}
+            {"count": count, "completed": now.isoformat(), "sid": session.id}
         )
         db.commit()
         db.refresh(session)
         return session
     
+    @staticmethod
+    def save_single_response(db: Session, date: str, question_id: str, response_value: str) -> None:
+        """Guardar o reemplazar la respuesta de una sola pregunta para un día dado."""
+        session = DailySessionService.get_or_create_session(db, date)
+        now = datetime.utcnow()
+
+        # Eliminar respuesta previa de esta pregunta en este día
+        db.execute(
+            text("DELETE FROM response WHERE question_id = :qid AND CAST(date AS DATE) = :d"),
+            {"qid": int(question_id), "d": date}
+        )
+        # Insertar nueva respuesta
+        db.execute(
+            text("INSERT INTO response (question_id, response, date) VALUES (:qid, :resp, :dt)"),
+            {"qid": int(question_id), "resp": response_value, "dt": now}
+        )
+        # Recalcular cuántas preguntas respondidas hay en el día
+        count = db.execute(
+            text("SELECT COUNT(*) FROM response WHERE CAST(date AS DATE) = :d"),
+            {"d": date}
+        ).scalar()
+        db.execute(
+            text("UPDATE daily_sessions SET answered_questions = :count WHERE id = :sid"),
+            {"count": count, "sid": session.id}
+        )
+        db.commit()
+
     @staticmethod
     def get_active_questions(db: Session) -> List[Question]:
         """Obtener preguntas activas ordenadas."""

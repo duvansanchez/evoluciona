@@ -149,7 +149,7 @@ class Question(Base):
     frecuencia = Column(String(20), nullable=True)
     
     # Relaciones
-    responses = relationship("QuestionResponse", back_populates="question", foreign_keys="QuestionResponse.pregunta_id")
+    responses = relationship("QuestionResponse", back_populates="question", foreign_keys="QuestionResponse.question_id")
     question_options = relationship("QuestionOption", back_populates="question", foreign_keys="QuestionOption.pregunta_id")
 
 
