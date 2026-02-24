@@ -166,6 +166,10 @@ class DailySessionService:
         """Guardar respuestas a una sesión diaria usando upsert por pregunta."""
         session = DailySessionService.get_or_create_session(db, date)
         now = datetime.utcnow()
+        # Use the target date with current time so CAST(date AS DATE) matches the requested date
+        target_dt = datetime.strptime(date, "%Y-%m-%d").replace(
+            hour=now.hour, minute=now.minute, second=now.second
+        )
 
         # Upsert por pregunta: borrar sólo la de ese question_id y reinsertar
         for response_data in session_data.responses:
@@ -178,7 +182,7 @@ class DailySessionService:
                 {
                     "qid": int(response_data.question_id),
                     "resp": response_data.response,
-                    "dt": now,
+                    "dt": target_dt,
                 }
             )
 
@@ -202,6 +206,10 @@ class DailySessionService:
         """Guardar o reemplazar la respuesta de una sola pregunta para un día dado."""
         session = DailySessionService.get_or_create_session(db, date)
         now = datetime.utcnow()
+        # Use the target date with current time so CAST(date AS DATE) matches the requested date
+        target_dt = datetime.strptime(date, "%Y-%m-%d").replace(
+            hour=now.hour, minute=now.minute, second=now.second
+        )
 
         # Eliminar respuesta previa de esta pregunta en este día
         db.execute(
@@ -211,7 +219,7 @@ class DailySessionService:
         # Insertar nueva respuesta
         db.execute(
             text("INSERT INTO response (question_id, response, date) VALUES (:qid, :resp, :dt)"),
-            {"qid": int(question_id), "resp": response_value, "dt": now}
+            {"qid": int(question_id), "resp": response_value, "dt": target_dt}
         )
         # Recalcular cuántas preguntas respondidas hay en el día
         count = db.execute(

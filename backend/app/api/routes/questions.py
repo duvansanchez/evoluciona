@@ -19,15 +19,24 @@ import math
 def _build_session_response(session, db: Session, date: str) -> dict:
     """Construye el dict de respuesta de sesión incluyendo las respuestas guardadas del día."""
     rows = db.execute(
-        text("SELECT id, question_id, response, date FROM response WHERE CAST(date AS DATE) = :d"),
+        text("SELECT id, question_id, response, date FROM response WHERE CAST(date AS DATE) = :d ORDER BY id DESC"),
         {"d": date}
     ).fetchall()
+
+    # Deduplicate: keep only the latest response per question_id
+    seen: set = set()
+    unique_rows = []
+    for row in rows:
+        qid = row[1]
+        if qid not in seen:
+            seen.add(qid)
+            unique_rows.append(row)
 
     return {
         "id": session.id,
         "date": session.date,
         "total_questions": session.total_questions,
-        "answered_questions": session.answered_questions,
+        "answered_questions": len(unique_rows),
         "completed_at": session.completed_at,
         "created_at": session.created_at or "",
         "responses": [
@@ -37,7 +46,7 @@ def _build_session_response(session, db: Session, date: str) -> dict:
                 "response": row[2] or "",
                 "answered_at": str(row[3]) if row[3] else "",
             }
-            for row in rows
+            for row in unique_rows
         ],
     }
 
