@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Save, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays } from 'lucide-react';
 import { questionsAPI } from '@/services/api';
 import type { Question } from '@/types';
 
 export default function QuestionsAnswer() {
+  const [searchParams] = useSearchParams();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Record<string, string | string[]>>({});
   const [savedQuestions, setSavedQuestions] = useState<Set<string>>(new Set());
@@ -18,14 +20,17 @@ export default function QuestionsAnswer() {
     return a.order - b.order;
   });
 
-  const today = new Date().toLocaleDateString('es-ES', {
+  const todayKey = new Date().toISOString().split('T')[0];
+  const dateParam = searchParams.get('date');
+  const targetDate = dateParam ?? todayKey;
+  const isYesterday = targetDate !== todayKey;
+
+  const targetDateLabel = new Date(targetDate + 'T12:00:00').toLocaleDateString('es-ES', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
   });
-
-  const todayKey = new Date().toISOString().split('T')[0];
 
   const answeredCount = activeQuestions.filter(q => {
     const v = responses[q.id];
@@ -71,8 +76,8 @@ export default function QuestionsAnswer() {
         });
         setQuestions(mapped);
 
-        // Cargar respuestas guardadas del día
-        const session = await questionsAPI.getDailySession(todayKey);
+        // Cargar respuestas guardadas del día (hoy o ayer)
+        const session = await questionsAPI.getDailySession(targetDate);
 const initialResponses: Record<string, string | string[]> = {};
         const alreadySaved = new Set<string>();
 
@@ -121,7 +126,7 @@ const initialResponses: Record<string, string | string[]> = {};
             response: Array.isArray(value) ? JSON.stringify(value) : value ?? '',
           })),
       };
-      await questionsAPI.saveDailyResponses(todayKey, payload);
+      await questionsAPI.saveDailyResponses(targetDate, payload);
       // Marcar todas las respondidas como guardadas
       const newSaved = new Set<string>(payload.responses.map(r => r.question_id));
       setSavedQuestions(newSaved);
@@ -153,10 +158,18 @@ const initialResponses: Record<string, string | string[]> = {};
         <div className="bg-card rounded-2xl p-6 border border-border shadow-sm">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <h1 className="text-2xl font-heading font-bold text-foreground mb-1">
-                Preguntas del Día
-              </h1>
-              <p className="text-sm text-muted-foreground capitalize">{today}</p>
+              <div className="flex items-center gap-2 mb-1">
+                {isYesterday && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold">
+                    <CalendarDays className="h-3 w-3" />
+                    Ayer
+                  </span>
+                )}
+                <h1 className="text-2xl font-heading font-bold text-foreground">
+                  {isYesterday ? 'Preguntas de Ayer' : 'Preguntas del Día'}
+                </h1>
+              </div>
+              <p className="text-sm text-muted-foreground capitalize">{targetDateLabel}</p>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary">
               <Clock className="h-4 w-4" />
