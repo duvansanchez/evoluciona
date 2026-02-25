@@ -396,7 +396,14 @@ function QuestionCard({
       return <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{value as string}</p>;
     }
     if (question.type === 'checkbox') {
-      const selected = value as string[];
+      let selected: string[] = [];
+      if (Array.isArray(value)) {
+        selected = value;
+      } else if (typeof value === 'string' && value.trim().startsWith('[')) {
+        try { selected = JSON.parse(value); } catch { selected = [value]; }
+      } else if (typeof value === 'string' && value !== '') {
+        selected = [value];
+      }
       return (
         <div className="flex flex-wrap gap-2">
           {selected.map(v => {
