@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays } from 'lucide-react';
+import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays, Pencil } from 'lucide-react';
 import { questionsAPI } from '@/services/api';
 import type { Question } from '@/types';
 
@@ -24,6 +24,7 @@ export default function QuestionsAnswer() {
   const dateParam = searchParams.get('date');
   const targetDate = dateParam ?? todayKey;
   const isYesterday = targetDate !== todayKey;
+  const isViewOnly = searchParams.get('view') === '1';
 
   const targetDateLabel = new Date(targetDate + 'T12:00:00').toLocaleDateString('es-ES', {
     weekday: 'long',
@@ -165,8 +166,13 @@ const initialResponses: Record<string, string | string[]> = {};
                     Ayer
                   </span>
                 )}
+                {isViewOnly && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs font-semibold">
+                    Solo lectura
+                  </span>
+                )}
                 <h1 className="text-2xl font-heading font-bold text-foreground">
-                  {isYesterday ? 'Preguntas de Ayer' : 'Preguntas del Día'}
+                  {isYesterday ? (isViewOnly ? 'Respuestas de Ayer' : 'Preguntas de Ayer') : 'Preguntas del Día'}
                 </h1>
               </div>
               <p className="text-sm text-muted-foreground capitalize">{targetDateLabel}</p>
@@ -197,26 +203,41 @@ const initialResponses: Record<string, string | string[]> = {};
                 value={responses[question.id]}
                 isSaved={savedQuestions.has(question.id)}
                 onChange={(value) => handleResponse(question.id, value)}
+                readOnly={isViewOnly}
               />
             ))
           )}
         </div>
 
-        {/* Guardar button */}
+        {/* Guardar button / Editar button */}
         {!loading && (
           <div className="sticky bottom-6 flex justify-center pb-2">
-            <button
-              onClick={handleSaveClick}
-              disabled={answeredCount === 0}
-              className={`flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
-                answeredCount > 0
-                  ? 'bg-primary hover:bg-primary/90 hover:scale-105'
-                  : 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
-              }`}
-            >
-              <Save className="h-5 w-5" />
-              Guardar Respuestas
-            </button>
+            {isViewOnly ? (
+              <button
+                onClick={() => {
+                  const params = new URLSearchParams(searchParams);
+                  params.delete('view');
+                  window.location.href = `/questions/answer?${params.toString()}`;
+                }}
+                className="flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white shadow-lg bg-primary hover:bg-primary/90 hover:scale-105 transition-all"
+              >
+                <Pencil className="h-5 w-5" />
+                Editar respuestas
+              </button>
+            ) : (
+              <button
+                onClick={handleSaveClick}
+                disabled={answeredCount === 0}
+                className={`flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
+                  answeredCount > 0
+                    ? 'bg-primary hover:bg-primary/90 hover:scale-105'
+                    : 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
+                }`}
+              >
+                <Save className="h-5 w-5" />
+                Guardar Respuestas
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -293,29 +314,55 @@ function QuestionCard({
   value,
   isSaved,
   onChange,
+  readOnly = false,
 }: {
   question: Question;
   index: number;
   value: string | string[] | undefined;
   isSaved: boolean;
   onChange: (value: string | string[]) => void;
+  readOnly?: boolean;
 }) {
   const isAnswered = value !== undefined && (Array.isArray(value) ? value.length > 0 : value !== '');
 
+  // In read-only mode, render the answer as plain text
+  const renderReadOnly = () => {
+    if (!isAnswered) return <p className="text-sm text-muted-foreground italic">Sin respuesta</p>;
+    if (question.type === 'text') {
+      return <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{value as string}</p>;
+    }
+    if (question.type === 'checkbox') {
+      const selected = value as string[];
+      return (
+        <div className="flex flex-wrap gap-2">
+          {selected.map(v => {
+            const label = question.options?.find(o => o.value === v)?.label ?? v;
+            return <span key={v} className="px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{label}</span>;
+          })}
+        </div>
+      );
+    }
+    // radio / select
+    const label = question.options?.find(o => o.value === (value as string))?.label ?? (value as string);
+    return <span className="px-3 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium">{label}</span>;
+  };
+
   return (
     <div className={`bg-card rounded-xl p-6 border transition-all ${
-      isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
+      readOnly
+        ? 'border-green-200 bg-green-50/30'
+        : isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
     }`}>
       {/* Question header */}
       <div className="flex items-start gap-3 mb-4">
         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-          isSaved
+          readOnly || isSaved
             ? 'bg-green-500 text-white'
             : isAnswered
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground'
         }`}>
-          {isSaved ? <CheckCircle2 className="h-4 w-4" /> : index}
+          {(readOnly && isAnswered) || isSaved ? <CheckCircle2 className="h-4 w-4" /> : index}
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold text-foreground mb-1">
@@ -326,15 +373,17 @@ function QuestionCard({
             <p className="text-sm text-muted-foreground">{question.description}</p>
           )}
         </div>
-        {isSaved && (
+        {(readOnly || isSaved) && isAnswered && (
           <span className="flex-shrink-0 text-xs font-medium text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
             Guardada
           </span>
         )}
       </div>
 
-      {/* Question input */}
+      {/* Question input / read-only display */}
       <div className="ml-11">
+        {readOnly ? renderReadOnly() : (
+          <>
         {question.type === 'text' && (
           <textarea
             value={(value as string) || ''}
@@ -406,6 +455,8 @@ function QuestionCard({
               );
             })}
           </div>
+        )}
+          </>
         )}
       </div>
     </div>
