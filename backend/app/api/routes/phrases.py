@@ -10,12 +10,16 @@ from app.schemas.schemas import (
     PhraseCreate, PhraseUpdate, PhraseResponse,
     PhrasesPaginatedResponse,
     PhraseSubcategoryCreate, PhraseSubcategoryUpdate, PhraseSubcategoryResponse,
+    ReviewPlanCreate, ReviewPlanResponse,
 )
 from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService
 )
+from app.models.models import ReviewPlan
 from typing import List
 import math
+import json
+from datetime import datetime
 
 router = APIRouter(prefix="/api/phrases", tags=["phrases"])
 
@@ -112,6 +116,49 @@ def delete_category(category_id: str, db: Session = Depends(get_db)):
     if not PhraseCategoryService.delete_category(db, category_id):
         raise HTTPException(status_code=404, detail="Category not found")
     return {"message": "Category deleted"}
+
+
+# ==================== REVIEW PLANS ====================
+
+def _plan_to_dict(plan: ReviewPlan) -> dict:
+    return {
+        "id": plan.id,
+        "name": plan.nombre,
+        "targets": json.loads(plan.targets),
+        "created_at": plan.fecha_creacion.isoformat() if plan.fecha_creacion else None,
+    }
+
+
+@router.get("/review-plans", response_model=List[ReviewPlanResponse])
+def list_review_plans(db: Session = Depends(get_db)):
+    """Obtener todas las planificaciones de repaso."""
+    plans = db.query(ReviewPlan).order_by(ReviewPlan.fecha_creacion.desc()).all()
+    return [_plan_to_dict(p) for p in plans]
+
+
+@router.post("/review-plans", response_model=ReviewPlanResponse)
+def create_review_plan(data: ReviewPlanCreate, db: Session = Depends(get_db)):
+    """Crear planificación de repaso."""
+    plan = ReviewPlan(
+        nombre=data.name,
+        targets=json.dumps(data.targets),
+        fecha_creacion=datetime.now(),
+    )
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return _plan_to_dict(plan)
+
+
+@router.delete("/review-plans/{plan_id}")
+def delete_review_plan(plan_id: int, db: Session = Depends(get_db)):
+    """Eliminar planificación de repaso."""
+    plan = db.query(ReviewPlan).filter(ReviewPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Review plan not found")
+    db.delete(plan)
+    db.commit()
+    return {"message": "Review plan deleted"}
 
 
 # ==================== PHRASES ====================

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, Settings } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
@@ -6,18 +6,17 @@ import PhraseCard from '@/components/phrases/PhraseCard';
 import PhraseModal from '@/components/phrases/PhraseModal';
 import ReviewModal from '@/components/phrases/ReviewModal';
 import RandomPhraseModal from '@/components/phrases/RandomPhraseModal';
-import { phrasesAPI } from '@/services/api';
+import { phrasesAPI, reviewPlansAPI } from '@/services/api';
 import type { Phrase, PhraseCategory } from '@/types';
 import { mockPhraseCategories } from '@/data/mockData';
 
 interface ReviewPlan {
-  id: string;
+  id: number;
   name: string;
   targets: string[];
 }
 
-const REVIEW_PLANS_STORAGE_KEY = 'phrases.review-plans.v2';
-const LEGACY_STUDY_PLANS_STORAGE_KEY = 'phrases.study-plans.v1';
+const PHRASES_PAGE_SIZE = 60;
 
 // Mapear datos del backend al formato frontend
 const mapBackendPhrase = (item: any): Phrase => ({
@@ -52,8 +51,14 @@ export default function Phrases() {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [categories, setCategories] = useState<PhraseCategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>('all');
+  const [phrasesPage, setPhrasesPage] = useState(1);
+  const [phrasesPages, setPhrasesPages] = useState(1);
+  const [phrasesTotal, setPhrasesTotal] = useState(0);
+  const [activeTotal, setActiveTotal] = useState(0);
+  const [inactiveTotal, setInactiveTotal] = useState(0);
   const [showPhraseModal, setShowPhraseModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showRandomModal, setShowRandomModal] = useState(false);
@@ -67,100 +72,83 @@ export default function Phrases() {
   const [targetToAdd, setTargetToAdd] = useState('');
   const [selectedPlanTargets, setSelectedPlanTargets] = useState<string[]>([]);
 
-  // Cargar frases y categorías del backend
+  const categoryFilter = selectedCategory !== 'all' ? selectedCategory : undefined;
+  const subcategoryFilter = selectedSubcategory !== 'all' ? selectedSubcategory : undefined;
+
+  const fetchPhraseCounts = async () => {
+    const [activeRes, inactiveRes] = await Promise.all([
+      phrasesAPI.getPhrases(1, 1, categoryFilter, subcategoryFilter, true),
+      phrasesAPI.getPhrases(1, 1, categoryFilter, subcategoryFilter, false),
+    ]);
+
+    setActiveTotal(activeRes.total || 0);
+    setInactiveTotal(inactiveRes.total || 0);
+  };
+
+  const fetchPhrasesPage = async (page: number, reset: boolean) => {
+    const activeFilter = showInactive ? undefined : true;
+    if (reset) {
+      setLoading(true);
+    } else {
+      setLoadingMore(true);
+    }
+
+    try {
+      const response = await phrasesAPI.getPhrases(
+        page,
+        PHRASES_PAGE_SIZE,
+        categoryFilter,
+        subcategoryFilter,
+        activeFilter,
+      );
+      const mapped = response.items.map(mapBackendPhrase);
+
+      setPhrases(prev => (reset ? mapped : [...prev, ...mapped]));
+      setPhrasesPage(response.page || page);
+      setPhrasesPages(response.pages || 1);
+      setPhrasesTotal(response.total || 0);
+    } catch (error) {
+      console.error('Error loading phrases:', error);
+      if (reset) setPhrases([]);
+    } finally {
+      if (reset) {
+        setLoading(false);
+      } else {
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  // Cargar categorías del backend
   useEffect(() => {
-    const loadData = async () => {
+    const loadCategories = async () => {
       try {
-        setLoading(true);
-        
-        // Cargar categorías
         const categoriesData = await phrasesAPI.getCategoriesTree();
         const mappedCategories = categoriesData.map(mapBackendCategory);
         setCategories(mappedCategories);
-        
-        // Cargar TODAS las frases con paginación múltiple
-        console.log('📖 Cargando frases...');
-        const firstPage = await phrasesAPI.getPhrases(1, 100);
-        console.log(`📊 Total frases en base de datos: ${firstPage.total}`);
-        console.log(`📄 Total de páginas: ${firstPage.pages}`);
-        
-        let allPhrases = [...firstPage.items];
-        
-        // Si hay más páginas, cargarlas en paralelo
-        if (firstPage.pages > 1) {
-          const pagePromises = [];
-          for (let page = 2; page <= firstPage.pages; page++) {
-            pagePromises.push(phrasesAPI.getPhrases(page, 100));
-          }
-          const restPages = await Promise.all(pagePromises);
-          allPhrases = [...allPhrases, ...restPages.flatMap(p => p.items)];
-        }
-        
-        const mappedPhrases = allPhrases.map(mapBackendPhrase);
-        console.log(`✅ Total frases cargadas: ${mappedPhrases.length}`);
-        setPhrases(mappedPhrases);
       } catch (error) {
-        console.error('Error loading phrases data:', error);
-        // Usar mock data como fallback
+        console.error('Error loading categories data:', error);
         setCategories(mockPhraseCategories);
-      } finally {
-        setLoading(false);
       }
     };
 
-    loadData();
+    loadCategories();
   }, []);
 
+  // Cargar frases según filtros actuales (sin traer todo de golpe)
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(REVIEW_PLANS_STORAGE_KEY);
-      const legacy = localStorage.getItem(LEGACY_STUDY_PLANS_STORAGE_KEY);
-      const parsed = JSON.parse(saved || legacy || '[]');
-      if (Array.isArray(parsed)) {
-        const migrated: ReviewPlan[] = parsed
-          .map((item: any) => {
-            const hasTargetsArray = Array.isArray(item?.targets);
-            if (hasTargetsArray) {
-              return {
-                id: String(item.id || `plan-${Date.now()}-${Math.random()}`),
-                name: String(item.name || 'Planificación de repaso'),
-                targets: Array.from(new Set(item.targets.filter((target: unknown) => typeof target === 'string'))),
-              };
-            }
+    fetchPhrasesPage(1, true);
+    fetchPhraseCounts().catch(error => console.error('Error loading phrase counts:', error));
+  }, [selectedCategory, selectedSubcategory, showInactive]);
 
-            const legacyTargets = [item?.primaryTarget, item?.secondaryTarget].filter(
-              (target: unknown) => typeof target === 'string' && target.length > 0,
-            );
-            if (legacyTargets.length === 0) return null;
-            return {
-              id: String(item.id || `plan-${Date.now()}-${Math.random()}`),
-              name: String(item.name || 'Planificación de repaso'),
-              targets: Array.from(new Set(legacyTargets)),
-            };
-          })
-          .filter((item: ReviewPlan | null): item is ReviewPlan => Boolean(item));
-
-        setReviewPlans(migrated);
-      }
-    } catch (error) {
-      console.error('Error reading review plans from localStorage:', error);
-    }
+  useEffect(() => {
+    reviewPlansAPI.getPlans()
+      .then(setReviewPlans)
+      .catch(error => console.error('Error loading review plans:', error));
   }, []);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(REVIEW_PLANS_STORAGE_KEY, JSON.stringify(reviewPlans));
-    } catch (error) {
-      console.error('Error saving review plans to localStorage:', error);
-    }
-  }, [reviewPlans]);
-
-  // Filtrar frases según categoría y subcategoría seleccionadas
-  const filtered = phrases.filter(p => {
-    if (selectedCategory !== 'all' && p.categoryId !== selectedCategory) return false;
-    if (selectedSubcategory !== 'all' && p.subcategoryId !== selectedSubcategory) return false;
-    return true;
-  });
+  // Lista visible (ya viene filtrada desde backend)
+  const filtered = phrases;
 
   // Métricas dinámicas basadas en el filtro actual
   const filteredActive = filtered.filter(p => p.active);
@@ -176,7 +164,7 @@ export default function Phrases() {
   const subcategories = currentCategory?.subcategories ?? [];
   const currentSubcategory = subcategories.find(s => s.id === selectedSubcategory);
 
-  const studyTargets = categories
+  const studyTargets = useMemo(() => categories
     .filter(category => category.active)
     .flatMap(category => [
     { value: `cat:${category.id}`, label: `Categoría: ${category.name}` },
@@ -186,7 +174,7 @@ export default function Phrases() {
       value: `sub:${category.id}:${sub.id}`,
       label: `Subcategoría: ${category.name} / ${sub.name}`,
     })),
-  ]);
+  ]), [categories]);
 
   const targetLabel = (target: string) => {
     if (!target) return '';
@@ -232,6 +220,52 @@ export default function Phrases() {
     setSelectedPlanTargets(prev => prev.filter(item => item !== target));
   };
 
+  const fetchAllActiveForCurrentFilters = async () => {
+    let page = 1;
+    const merged: Phrase[] = [];
+    let totalPages = 1;
+
+    do {
+      const response = await phrasesAPI.getPhrases(
+        page,
+        100,
+        categoryFilter,
+        subcategoryFilter,
+        true,
+      );
+      merged.push(...response.items.map(mapBackendPhrase));
+      totalPages = response.pages || 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return merged;
+  };
+
+  const fetchAllActiveForTargets = async (targets: string[]) => {
+    const byId = new Map<string, Phrase>();
+
+    for (const target of targets) {
+      const [type, categoryId, subcategoryId] = target.split(':');
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await phrasesAPI.getPhrases(
+          page,
+          100,
+          categoryId,
+          type === 'sub' ? subcategoryId : undefined,
+          true,
+        );
+        response.items.map(mapBackendPhrase).forEach((phrase) => byId.set(phrase.id, phrase));
+        totalPages = response.pages || 1;
+        page += 1;
+      } while (page <= totalPages);
+    }
+
+    return Array.from(byId.values());
+  };
+
   const openReviewSession = (items: Phrase[], label: string) => {
     setReviewPhrases(items);
     setReviewSessionLabel(label);
@@ -246,22 +280,20 @@ export default function Phrases() {
     ));
   };
 
-  const handleReviewAll = () => {
-    if (filteredActive.length === 0) return;
+  const handleReviewAll = async () => {
+    const allActive = await fetchAllActiveForCurrentFilters();
+    if (allActive.length === 0) return;
     const label =
       selectedCategory === 'all'
         ? 'Todas las categorías'
         : selectedSubcategory === 'all'
           ? (categories.find(c => c.id === selectedCategory)?.name || 'Categoría')
           : (currentSubcategory?.name || 'Subcategoría');
-    openReviewSession(filteredActive, label);
+    openReviewSession(allActive, label);
   };
 
-  const handleStartStudyReview = (plan: ReviewPlan) => {
-    const activePhrases = phrases.filter(p => p.active);
-    const selected = activePhrases.filter(p =>
-      plan.targets.some(target => matchesTarget(p, target))
-    );
+  const handleStartStudyReview = async (plan: ReviewPlan) => {
+    const selected = await fetchAllActiveForTargets(plan.targets);
 
     if (selected.length === 0) {
       alert('Esta planificación no tiene frases activas para repasar.');
@@ -271,7 +303,7 @@ export default function Phrases() {
     openReviewSession(selected, `Planificación: ${plan.name}`);
   };
 
-  const handleCreateReviewPlan = () => {
+  const handleCreateReviewPlan = async () => {
     if (!planName.trim()) {
       alert('El nombre de la planificación de repaso es obligatorio.');
       return;
@@ -282,16 +314,19 @@ export default function Phrases() {
       return;
     }
 
-    const newPlan: ReviewPlan = {
-      id: `plan-${Date.now()}`,
-      name: planName.trim(),
-      targets: selectedPlanTargets,
-    };
-
-    setReviewPlans(prev => [newPlan, ...prev]);
-    setPlanName('');
-    setSelectedPlanTargets([]);
-    setTargetToAdd('');
+    try {
+      const newPlan = await reviewPlansAPI.createPlan({
+        name: planName.trim(),
+        targets: selectedPlanTargets,
+      });
+      setReviewPlans(prev => [newPlan, ...prev]);
+      setPlanName('');
+      setSelectedPlanTargets([]);
+      setTargetToAdd('');
+    } catch (error) {
+      console.error('Error creating review plan:', error);
+      alert('Error al guardar la planificación.');
+    }
   };
 
   const handleRunDraftPlan = () => {
@@ -309,25 +344,33 @@ export default function Phrases() {
     handleStartStudyReview(draftPlan);
   };
 
-  const handleDeleteReviewPlan = (id: string) => {
+  const handleDeleteReviewPlan = async (id: number) => {
     setReviewPlans(prev => prev.filter(plan => plan.id !== id));
+    try {
+      await reviewPlansAPI.deletePlan(id);
+    } catch (error) {
+      console.error('Error deleting review plan:', error);
+      reviewPlansAPI.getPlans().then(setReviewPlans).catch(() => {});
+    }
   };
 
-  const handleRandomPhrase = () => {
-    if (filteredActive.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * filteredActive.length);
-    setRandomPhrase(filteredActive[randomIndex]);
+  const handleRandomPhrase = async () => {
+    const allActive = await fetchAllActiveForCurrentFilters();
+    if (allActive.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * allActive.length);
+    setRandomPhrase(allActive[randomIndex]);
     setShowRandomModal(true);
   };
 
   const handleNewRandomPhrase = () => {
-    if (filteredActive.length === 0) return;
-    const randomIndex = Math.floor(Math.random() * filteredActive.length);
-    setRandomPhrase(filteredActive[randomIndex]);
+    const activeLoaded = filteredActive;
+    if (activeLoaded.length === 0) return;
+    const randomIndex = Math.floor(Math.random() * activeLoaded.length);
+    setRandomPhrase(activeLoaded[randomIndex]);
   };
 
   const getReviewButtonText = () => {
-    if (filteredActive.length === 0) return 'Repasar';
+    if (activeTotal === 0) return 'Repasar';
 
     let text = 'Repasar';
     if (selectedCategory !== 'all') {
@@ -341,7 +384,7 @@ export default function Phrases() {
     } else {
       text = 'Repasar Todas';
     }
-    return `${text} (${filteredActive.length})`;
+    return `${text} (${activeTotal})`;
   };
 
   const handleCreatePhrase = () => {
@@ -363,6 +406,8 @@ export default function Phrases() {
 
     try {
       await phrasesAPI.updatePhrase(id, { active: nextActive });
+      await fetchPhrasesPage(1, true);
+      await fetchPhraseCounts();
     } catch (error) {
       console.error('Error toggling phrase active:', error);
       setPhrases(prev => prev.map(p => p.id === id ? target : p));
@@ -436,7 +481,7 @@ export default function Phrases() {
           </button>
           <button
             onClick={handleRandomPhrase}
-            disabled={filtered.length === 0}
+            disabled={activeTotal === 0}
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Dices className="h-4 w-4" />
@@ -444,7 +489,7 @@ export default function Phrases() {
           </button>
           <button
             onClick={handleReviewAll}
-            disabled={filtered.length === 0}
+            disabled={activeTotal === 0}
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className="h-4 w-4" />
@@ -462,7 +507,7 @@ export default function Phrases() {
 
       {/* Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
-        <MetricCard title="Total" value={filtered.length} icon={BookOpen} color="primary" subtitle={`${filteredActive.length} activas`} />
+        <MetricCard title="Total" value={phrasesTotal} icon={BookOpen} color="primary" subtitle={`${activeTotal} activas`} />
         <MetricCard title="Hoy" value={filteredReviewedToday} icon={Eye} color="success" subtitle="Repasadas" />
         <MetricCard title="Total repasos" value={filteredTotalReviews} icon={RefreshCw} color="warning" />
         <MetricCard title="Categorías" value={categories.length} icon={Filter} color="primary" />
@@ -502,10 +547,10 @@ export default function Phrases() {
               : 'bg-background text-muted-foreground border-input hover:text-foreground hover:bg-muted'
           }`}
         >
-          {showInactive ? 'Ocultar inactivas' : `Mostrar inactivas (${filteredInactive.length})`}
+          {showInactive ? 'Ocultar inactivas' : `Mostrar inactivas (${inactiveTotal})`}
         </button>
 
-        <span className="text-xs text-muted-foreground">{filteredVisible.length} frases</span>
+        <span className="text-xs text-muted-foreground">{phrasesTotal} frases</span>
       </div>
 
       {/* Subcategory description */}
@@ -607,7 +652,7 @@ export default function Phrases() {
                     Repasar
                   </button>
                   <button
-                    onClick={() => handleDeleteReviewPlan(plan.id)}
+                    onClick={() => handleDeleteReviewPlan(Number(plan.id))}
                     className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
                   >
                     Eliminar
@@ -639,6 +684,18 @@ export default function Phrases() {
           <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
           <p className="text-muted-foreground font-medium">No hay frases en esta categoría</p>
           <p className="text-xs text-muted-foreground mt-1">Agrega tu primera frase inspiracional</p>
+        </div>
+      )}
+
+      {phrasesPage < phrasesPages && filteredVisible.length > 0 && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={() => fetchPhrasesPage(phrasesPage + 1, false)}
+            disabled={loadingMore}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {loadingMore ? 'Cargando...' : 'Cargar más frases'}
+          </button>
         </div>
       )}
 

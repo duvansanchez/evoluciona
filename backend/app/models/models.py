@@ -204,10 +204,20 @@ class QuestionOption(Base):
 class DailyQuestionsSession(Base):
     """Modelo para sesiones diarias de preguntas."""
     __tablename__ = "daily_sessions"
-    
+
     id = Column(String(36), primary_key=True)
     date = Column(String(10), nullable=False)
     completed_at = Column(String(30), nullable=True)
     total_questions = Column(Integer, default=0)
     answered_questions = Column(Integer, default=0)
     created_at = Column(String(30), nullable=True)
+
+
+class ReviewPlan(Base):
+    """Planificaciones de repaso de frases."""
+    __tablename__ = "review_plans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(255), nullable=False)
+    targets = Column(Text, nullable=False)  # JSON array de strings
+    fecha_creacion = Column(DateTime, nullable=True)

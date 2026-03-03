@@ -119,10 +119,17 @@ export const goalsAPI = {
  * Phrases API
  */
 export const phrasesAPI = {
-  getPhrases: async (page = 1, page_size = 50, categoryId?: number, subcategoryId?: number) => {
+  getPhrases: async (
+    page = 1,
+    page_size = 50,
+    categoryId?: number | string,
+    subcategoryId?: number | string,
+    active?: boolean,
+  ) => {
     let url = `${API_BASE_URL}/phrases?page=${page}&page_size=${page_size}`;
     if (categoryId) url += `&category_id=${categoryId}`;
     if (subcategoryId) url += `&subcategory_id=${subcategoryId}`;
+    if (typeof active === 'boolean') url += `&active=${active}`;
 
     const response = await fetch(url);
     if (!response.ok) throw new Error('Error fetching phrases');
@@ -353,6 +360,34 @@ export const reportsAPI = {
       throw new Error(errorText || 'Error sending previous week report');
     }
     return response.json();
+  },
+};
+
+/**
+ * Review Plans API
+ */
+export const reviewPlansAPI = {
+  getPlans: async (): Promise<{ id: number; name: string; targets: string[]; created_at?: string }[]> => {
+    const response = await fetch(`${API_BASE_URL}/phrases/review-plans`);
+    if (!response.ok) throw new Error('Error fetching review plans');
+    return response.json();
+  },
+
+  createPlan: async (data: { name: string; targets: string[] }): Promise<{ id: number; name: string; targets: string[]; created_at?: string }> => {
+    const response = await fetch(`${API_BASE_URL}/phrases/review-plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Error creating review plan');
+    return response.json();
+  },
+
+  deletePlan: async (id: number): Promise<void> => {
+    const response = await fetch(`${API_BASE_URL}/phrases/review-plans/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error deleting review plan');
   },
 };
 

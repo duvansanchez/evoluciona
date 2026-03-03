@@ -308,6 +308,25 @@ class DailySessionResponse(BaseModel):
         from_attributes = True
 
 
+# ==================== REVIEW PLANS ====================
+
+class ReviewPlanCreate(BaseModel):
+    """Crear planificación de repaso."""
+    name: str = Field(..., min_length=1, max_length=255)
+    targets: List[str]
+
+
+class ReviewPlanResponse(BaseModel):
+    """Respuesta de planificación de repaso."""
+    id: int
+    name: str
+    targets: List[str]
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ==================== PAGINATION ====================
 
 class PaginationParams(BaseModel):

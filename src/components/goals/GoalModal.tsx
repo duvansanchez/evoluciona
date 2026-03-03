@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { CalendarDays, CheckSquare, ChevronDown, Edit2, GripVertical, Info, ListChecks, Plus, PlusCircle, Trash2, X } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
@@ -399,13 +400,14 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                       >
                         {form.subGoals.map((sub, index) => (
                           <Draggable key={sub.id} draggableId={String(sub.id)} index={index}>
-                            {(provided, snapshot) => (
+                            {(provided, snapshot) => {
+                              const item = (
                               <div
                                 ref={provided.innerRef}
                                 {...provided.draggableProps}
                                 className={`flex items-center gap-3 group/sub p-2 rounded-lg transition-all ${
                                   snapshot.isDragging
-                                    ? 'bg-primary/20 border-2 border-primary shadow-lg shadow-primary/20'
+                                    ? 'bg-card border-2 border-primary shadow-xl'
                                     : 'hover:bg-muted/50 border-2 border-transparent'
                                 }`}
                               >
@@ -456,7 +458,11 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                                   <Trash2 className="h-4 w-4" />
                                 </button>
                               </div>
-                            )}
+                              );
+                              return snapshot.isDragging
+                                ? createPortal(item, document.body)
+                                : item;
+                            }}
                           </Draggable>
                         ))}
                         {provided.placeholder}
