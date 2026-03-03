@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, X } from 'lucide-react';
 import type { Phrase, PhraseCategory } from '../../types';
+import PhraseModal from './PhraseModal';
 
 interface ReviewModalProps {
   open: boolean;
@@ -8,11 +9,14 @@ interface ReviewModalProps {
   phrases: Phrase[];
   categories: PhraseCategory[];
   onReview: (id: string) => void;
+  onEdit: (id: string, formData: any) => void;
+  sessionLabel?: string;
 }
 
-export default function ReviewModal({ open, onOpenChange, phrases, categories, onReview }: ReviewModalProps) {
+export default function ReviewModal({ open, onOpenChange, phrases, categories, onReview, onEdit, sessionLabel }: ReviewModalProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showNotes, setShowNotes] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -24,13 +28,14 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
   useEffect(() => {
     if (!open) return;
     const handleKey = (e: KeyboardEvent) => {
+      if (showEditModal) return;
       if (e.key === 'ArrowRight') handleNext();
       else if (e.key === 'ArrowLeft') handlePrevious();
       else if (e.key === 'Enter') handleMarkAsReviewed();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, currentIndex, phrases.length]);
+  }, [open, currentIndex, phrases.length, showEditModal]);
 
   if (!open || phrases.length === 0) return null;
 
@@ -65,6 +70,11 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
     onOpenChange(false);
   };
 
+  const handleEditSave = (formData: any) => {
+    onEdit(currentPhrase.id, formData);
+    setShowEditModal(false);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-background animate-fade-in">
       {/* Header */}
@@ -83,7 +93,7 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Sesión de Repaso</h2>
                 <p className="text-xs text-muted-foreground">
-                  Repasando frases de: {category?.name || 'Todas'}
+                  Repasando frases de: {sessionLabel || category?.name || 'Todas'}
                 </p>
               </div>
             </div>
@@ -112,6 +122,13 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
             {/* Quote Card */}
             <div className="relative mb-6 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 p-8 shadow-lg border border-blue-100 dark:border-blue-900/30">
               <MessageSquareQuote className="absolute top-5 left-5 h-10 w-10 text-blue-300 dark:text-blue-700 opacity-50" />
+              <button
+                onClick={() => setShowEditModal(true)}
+                title="Editar frase"
+                className="absolute top-4 right-4 z-10 rounded-lg p-2 text-blue-400 hover:text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
               <div className="relative z-10">
                 <p className="text-xl md:text-2xl leading-relaxed text-foreground italic font-light text-center mb-4">
                   "{currentPhrase.text}"
@@ -178,7 +195,7 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
               <ChevronLeft className="h-4 w-4" />
               Anterior
             </button>
-            
+
             <button
               onClick={handleMarkAsReviewed}
               className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg"
@@ -197,6 +214,15 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
           </div>
         </div>
       </div>
+
+      {/* Edit Phrase Modal */}
+      <PhraseModal
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        phrase={currentPhrase}
+        categories={categories}
+        onSave={handleEditSave}
+      />
     </div>
   );
 }

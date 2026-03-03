@@ -10,6 +10,15 @@ import { phrasesAPI } from '@/services/api';
 import type { Phrase, PhraseCategory } from '@/types';
 import { mockPhraseCategories } from '@/data/mockData';
 
+interface ReviewPlan {
+  id: string;
+  name: string;
+  targets: string[];
+}
+
+const REVIEW_PLANS_STORAGE_KEY = 'phrases.review-plans.v2';
+const LEGACY_STUDY_PLANS_STORAGE_KEY = 'phrases.study-plans.v1';
+
 // Mapear datos del backend al formato frontend
 const mapBackendPhrase = (item: any): Phrase => ({
   id: item.id.toString(),
@@ -51,6 +60,12 @@ export default function Phrases() {
   const [randomPhrase, setRandomPhrase] = useState<Phrase | null>(null);
   const [editingPhrase, setEditingPhrase] = useState<Phrase | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [reviewPhrases, setReviewPhrases] = useState<Phrase[]>([]);
+  const [reviewSessionLabel, setReviewSessionLabel] = useState('Todas');
+  const [reviewPlans, setReviewPlans] = useState<ReviewPlan[]>([]);
+  const [planName, setPlanName] = useState('');
+  const [targetToAdd, setTargetToAdd] = useState('');
+  const [selectedPlanTargets, setSelectedPlanTargets] = useState<string[]>([]);
 
   // Cargar frases y categorías del backend
   useEffect(() => {
@@ -96,6 +111,50 @@ export default function Phrases() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REVIEW_PLANS_STORAGE_KEY);
+      const legacy = localStorage.getItem(LEGACY_STUDY_PLANS_STORAGE_KEY);
+      const parsed = JSON.parse(saved || legacy || '[]');
+      if (Array.isArray(parsed)) {
+        const migrated: ReviewPlan[] = parsed
+          .map((item: any) => {
+            const hasTargetsArray = Array.isArray(item?.targets);
+            if (hasTargetsArray) {
+              return {
+                id: String(item.id || `plan-${Date.now()}-${Math.random()}`),
+                name: String(item.name || 'Planificación de repaso'),
+                targets: Array.from(new Set(item.targets.filter((target: unknown) => typeof target === 'string'))),
+              };
+            }
+
+            const legacyTargets = [item?.primaryTarget, item?.secondaryTarget].filter(
+              (target: unknown) => typeof target === 'string' && target.length > 0,
+            );
+            if (legacyTargets.length === 0) return null;
+            return {
+              id: String(item.id || `plan-${Date.now()}-${Math.random()}`),
+              name: String(item.name || 'Planificación de repaso'),
+              targets: Array.from(new Set(legacyTargets)),
+            };
+          })
+          .filter((item: ReviewPlan | null): item is ReviewPlan => Boolean(item));
+
+        setReviewPlans(migrated);
+      }
+    } catch (error) {
+      console.error('Error reading review plans from localStorage:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(REVIEW_PLANS_STORAGE_KEY, JSON.stringify(reviewPlans));
+    } catch (error) {
+      console.error('Error saving review plans to localStorage:', error);
+    }
+  }, [reviewPlans]);
+
   // Filtrar frases según categoría y subcategoría seleccionadas
   const filtered = phrases.filter(p => {
     if (selectedCategory !== 'all' && p.categoryId !== selectedCategory) return false;
@@ -117,6 +176,68 @@ export default function Phrases() {
   const subcategories = currentCategory?.subcategories ?? [];
   const currentSubcategory = subcategories.find(s => s.id === selectedSubcategory);
 
+  const studyTargets = categories
+    .filter(category => category.active)
+    .flatMap(category => [
+    { value: `cat:${category.id}`, label: `Categoría: ${category.name}` },
+    ...category.subcategories
+      .filter(sub => sub.active)
+      .map(sub => ({
+      value: `sub:${category.id}:${sub.id}`,
+      label: `Subcategoría: ${category.name} / ${sub.name}`,
+    })),
+  ]);
+
+  const targetLabel = (target: string) => {
+    if (!target) return '';
+    const [type, categoryId, subcategoryId] = target.split(':');
+    const category = categories.find(c => c.id === categoryId);
+
+    if (type === 'cat') {
+      return category ? `Categoría: ${category.name}` : 'Categoría';
+    }
+
+    const sub = category?.subcategories.find(s => s.id === subcategoryId);
+    return category && sub
+      ? `Subcategoría: ${category.name} / ${sub.name}`
+      : 'Subcategoría';
+  };
+
+  const matchesTarget = (phrase: Phrase, target: string) => {
+    const [type, categoryId, subcategoryId] = target.split(':');
+    if (type === 'cat') {
+      return phrase.categoryId === categoryId;
+    }
+    if (type === 'sub') {
+      return phrase.categoryId === categoryId && phrase.subcategoryId === subcategoryId;
+    }
+    return false;
+  };
+
+  const getPlanPhraseCount = (plan: ReviewPlan) => {
+    const activePhrases = phrases.filter(p => p.active);
+    return activePhrases.filter(p =>
+      plan.targets.some(target => matchesTarget(p, target))
+    ).length;
+  };
+
+  const addTargetToDraft = () => {
+    if (!targetToAdd) return;
+    if (selectedPlanTargets.includes(targetToAdd)) return;
+    setSelectedPlanTargets(prev => [...prev, targetToAdd]);
+    setTargetToAdd('');
+  };
+
+  const removeTargetFromDraft = (target: string) => {
+    setSelectedPlanTargets(prev => prev.filter(item => item !== target));
+  };
+
+  const openReviewSession = (items: Phrase[], label: string) => {
+    setReviewPhrases(items);
+    setReviewSessionLabel(label);
+    setShowReviewModal(true);
+  };
+
   const handleReview = (id: string) => {
     setPhrases(prev => prev.map(p =>
       p.id === id
@@ -127,7 +248,69 @@ export default function Phrases() {
 
   const handleReviewAll = () => {
     if (filteredActive.length === 0) return;
-    setShowReviewModal(true);
+    const label =
+      selectedCategory === 'all'
+        ? 'Todas las categorías'
+        : selectedSubcategory === 'all'
+          ? (categories.find(c => c.id === selectedCategory)?.name || 'Categoría')
+          : (currentSubcategory?.name || 'Subcategoría');
+    openReviewSession(filteredActive, label);
+  };
+
+  const handleStartStudyReview = (plan: ReviewPlan) => {
+    const activePhrases = phrases.filter(p => p.active);
+    const selected = activePhrases.filter(p =>
+      plan.targets.some(target => matchesTarget(p, target))
+    );
+
+    if (selected.length === 0) {
+      alert('Esta planificación no tiene frases activas para repasar.');
+      return;
+    }
+
+    openReviewSession(selected, `Planificación: ${plan.name}`);
+  };
+
+  const handleCreateReviewPlan = () => {
+    if (!planName.trim()) {
+      alert('El nombre de la planificación de repaso es obligatorio.');
+      return;
+    }
+
+    if (selectedPlanTargets.length === 0) {
+      alert('Selecciona al menos una categoría o subcategoría para crear la planificación.');
+      return;
+    }
+
+    const newPlan: ReviewPlan = {
+      id: `plan-${Date.now()}`,
+      name: planName.trim(),
+      targets: selectedPlanTargets,
+    };
+
+    setReviewPlans(prev => [newPlan, ...prev]);
+    setPlanName('');
+    setSelectedPlanTargets([]);
+    setTargetToAdd('');
+  };
+
+  const handleRunDraftPlan = () => {
+    if (selectedPlanTargets.length === 0) {
+      alert('Selecciona una o más categorías/subcategorías para iniciar el repaso.');
+      return;
+    }
+
+    const draftPlan: ReviewPlan = {
+      id: 'draft',
+      name: planName.trim() || 'Plan temporal',
+      targets: selectedPlanTargets,
+    };
+
+    handleStartStudyReview(draftPlan);
+  };
+
+  const handleDeleteReviewPlan = (id: string) => {
+    setReviewPlans(prev => prev.filter(plan => plan.id !== id));
   };
 
   const handleRandomPhrase = () => {
@@ -220,6 +403,21 @@ export default function Phrases() {
     }
   };
 
+  const handleEditFromReview = async (id: string, formData: any) => {
+    setPhrases(prev => prev.map(p => p.id === id ? { ...p, ...formData } : p));
+    try {
+      await phrasesAPI.updatePhrase(id, {
+        text: formData.text,
+        author: formData.author || null,
+        category_id: formData.categoryId ? parseInt(formData.categoryId) : null,
+        subcategory_id: formData.subcategoryId ? parseInt(formData.subcategoryId) : null,
+        notes: formData.notes || null,
+      });
+    } catch (error) {
+      console.error('Error updating phrase from review:', error);
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -228,7 +426,7 @@ export default function Phrases() {
           <h1 className="text-2xl md:text-3xl font-heading font-bold text-foreground">Frases Inspiracionales</h1>
           <p className="text-sm text-muted-foreground mt-1">Tu colección de sabiduría para el crecimiento personal</p>
         </div>
-        <div className="flex items-center gap-2 self-start">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <button
             onClick={() => navigate('/phrases/categories')}
             className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/80 transition-colors"
@@ -317,6 +515,110 @@ export default function Phrases() {
         </div>
       )}
 
+      {/* Review plans */}
+      <div className="mb-6 rounded-xl border border-border bg-card p-4 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Planificaciones de repaso</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Combina todas las categorías y subcategorías que quieras para una sola sesión de repaso.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="text"
+            value={planName}
+            onChange={(e) => setPlanName(e.target.value)}
+            placeholder="Nombre de la planificación"
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+
+          <select
+            value={targetToAdd}
+            onChange={(e) => setTargetToAdd(e.target.value)}
+            className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="">Selecciona categoría/subcategoría</option>
+            {studyTargets.map(target => (
+              <option key={target.value} value={target.value}>{target.label}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={addTargetToDraft}
+            disabled={!targetToAdd}
+            className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            Agregar selección
+          </button>
+        </div>
+
+        {selectedPlanTargets.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {selectedPlanTargets.map(target => (
+              <span key={target} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                {targetLabel(target)}
+                <button
+                  onClick={() => removeTargetFromDraft(target)}
+                  className="text-primary/80 hover:text-primary"
+                  aria-label={`Quitar ${targetLabel(target)}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleRunDraftPlan}
+            disabled={selectedPlanTargets.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Iniciar repaso combinado
+          </button>
+          <button
+            onClick={handleCreateReviewPlan}
+            disabled={selectedPlanTargets.length === 0 || !planName.trim()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            Guardar planificación
+          </button>
+        </div>
+
+        {reviewPlans.length > 0 && (
+          <div className="space-y-2">
+            {reviewPlans.map(plan => (
+              <div key={plan.id} className="flex flex-col gap-2 rounded-lg border border-border p-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{plan.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {plan.targets.map(target => targetLabel(target)).join(' + ')}
+                    {` · ${getPlanPhraseCount(plan)} frases activas`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleStartStudyReview(plan)}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    Repasar
+                  </button>
+                  <button
+                    onClick={() => handleDeleteReviewPlan(plan.id)}
+                    className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Phrases Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredVisible.map(phrase => (
@@ -353,9 +655,11 @@ export default function Phrases() {
       <ReviewModal
         open={showReviewModal}
         onOpenChange={setShowReviewModal}
-        phrases={filteredActive}
+        phrases={reviewPhrases}
         categories={categories}
         onReview={handleReview}
+        onEdit={handleEditFromReview}
+        sessionLabel={reviewSessionLabel}
       />
 
       {/* Random Phrase Modal */}
