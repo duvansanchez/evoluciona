@@ -3,13 +3,39 @@ import { Bell, X, Quote, Target, CalendarDays, Sunrise, Sunset, CheckCircle2 } f
 import { phrasesAPI, goalsAPI } from '@/services/api';
 import { isBellUnread, markBellRead, getReadState, getCurrentInterval } from './notificationState';
 
-type GoalItem = { titulo: string; categoria: string; completado: boolean };
+type GoalItem = { titulo: string; categoria: string; completado: boolean; recurrente?: boolean; fecha_creacion?: string };
 
 function normalizeCategory(cat: string | null | undefined): string {
   const c = (cat ?? '').toLowerCase().trim();
   if (c === 'semanal' || c === 'semanales' || c === 'weekly') return 'weekly';
   if (c === 'mensual' || c === 'mensuales' || c === 'monthly') return 'monthly';
   return c;
+}
+
+function shouldShowGoal(item: GoalItem, normalizedCategory: string): boolean {
+  if (item.recurrente === true) return true;
+  if (!item.fecha_creacion) return true;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const fechaCreacion = new Date(item.fecha_creacion);
+
+  if (normalizedCategory === 'weekly') {
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
+    monday.setHours(0, 0, 0, 0);
+    const fin = new Date(monday);
+    fin.setDate(monday.getDate() + 7);
+    return fechaCreacion >= monday && fechaCreacion < fin;
+  }
+
+  if (normalizedCategory === 'monthly') {
+    const inicio = new Date(today.getFullYear(), today.getMonth(), 1);
+    const fin = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    return fechaCreacion >= inicio && fechaCreacion < fin;
+  }
+
+  return true;
 }
 
 export default function NotificationBell() {
@@ -51,8 +77,14 @@ export default function NotificationBell() {
       }
 
       const goals: GoalItem[] = goalsRes.items;
-      setWeeklyGoals(goals.filter(g => normalizeCategory(g.categoria) === 'weekly' && !g.completado));
-      setMonthlyGoals(goals.filter(g => normalizeCategory(g.categoria) === 'monthly' && !g.completado));
+      setWeeklyGoals(goals.filter(g => {
+        const cat = normalizeCategory(g.categoria);
+        return cat === 'weekly' && !g.completado && shouldShowGoal(g, cat);
+      }));
+      setMonthlyGoals(goals.filter(g => {
+        const cat = normalizeCategory(g.categoria);
+        return cat === 'monthly' && !g.completado && shouldShowGoal(g, cat);
+      }));
       setLoaded(true);
     } catch (err) {
       console.error('Error fetching notifications:', err);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, Grid3X3, History, List, Plus, Target, TrendingUp } from 'lucide-react';
+import { CheckCircle2, Circle, Eye, EyeOff, Grid3X3, History, List, Plus, Target, TrendingUp } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalModal from '@/components/goals/GoalModal';
@@ -137,6 +137,12 @@ export default function Goals() {
   const [focusSubGoal, setFocusSubGoal] = useState<SubGoal | null>(null);
   const [focusParentGoal, setFocusParentGoal] = useState<Goal | null>(null);
   const [allGoalsMapped, setAllGoalsMapped] = useState<Goal[]>([]);
+  const [hiddenGoalIds, setHiddenGoalIds] = useState<Set<string>>(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const raw = localStorage.getItem(`hidden_goals_${today}`);
+    return new Set(raw ? JSON.parse(raw) : []);
+  });
+  const [showHidden, setShowHidden] = useState(false);
 
   // Cargar objetivos del backend
   const loadGoals = async () => {
@@ -636,6 +642,20 @@ export default function Goals() {
     void persistSubGoalUpdate(subGoalId, { completed: true });
   };
 
+  const handleHideGoal = (id: string) => {
+    const today = new Date().toISOString().slice(0, 10);
+    setHiddenGoalIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      localStorage.setItem(`hidden_goals_${today}`, JSON.stringify([...next]));
+      return next;
+    });
+  };
+
   const handleToggleSubGoal = (subGoalId: string) => {
     setGoals(prev => prev.map(g => ({
       ...g,
@@ -663,7 +683,12 @@ export default function Goals() {
     }
   };
 
-  const sorted = [...filtered].sort((a, b) => {
+  const visibleGoals = showHidden
+    ? filtered
+    : filtered.filter(g => !hiddenGoalIds.has(g.id));
+
+  const sorted = [...visibleGoals].sort((a, b) => {
+    if (hiddenGoalIds.has(a.id) !== hiddenGoalIds.has(b.id)) return hiddenGoalIds.has(a.id) ? 1 : -1;
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     if (a.priority !== b.priority) {
       const order = { high: 0, medium: 1, low: 2 };
@@ -671,6 +696,8 @@ export default function Goals() {
     }
     return 0;
   });
+
+  const hiddenInCurrentTab = filtered.filter(g => hiddenGoalIds.has(g.id)).length;
 
   const currentGoalIds = new Set(goals.map(g => g.id));
   const historicFiltered = allGoalsMapped
@@ -735,6 +762,20 @@ export default function Goals() {
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {hiddenInCurrentTab > 0 && (
+            <button
+              onClick={() => setShowHidden(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                showHidden
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+              title={showHidden ? 'Ocultar los ocultos' : `Mostrar ${hiddenInCurrentTab} oculto${hiddenInCurrentTab > 1 ? 's' : ''}`}
+            >
+              {showHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {hiddenInCurrentTab}
+            </button>
+          )}
           <button
             onClick={() => setViewMode('grid')}
             className={`p-2 rounded-lg transition-colors ${viewMode === 'grid' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent'}`}
@@ -761,11 +802,13 @@ export default function Goals() {
               <GoalCard
                 key={goal.id}
                 goal={goal}
+                isHidden={hiddenGoalIds.has(goal.id)}
                 onToggle={handleToggle}
                 onEdit={handleEdit}
                 onFocusGoal={handleOpenGoalFocus}
                 onDelete={handleDeleteGoal}
                 onToggleSubGoal={handleToggleSubGoal}
+                onHide={handleHideGoal}
               />
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronUp, Clock, Edit2, Focus, Repeat, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Clock, Edit2, EyeOff, Eye, Focus, Repeat, Trash2 } from 'lucide-react';
 import type { Goal } from '@/types';
 import { useState } from 'react';
 
@@ -24,21 +24,23 @@ const dayPartLabels: Record<string, string> = {
 
 interface GoalCardProps {
   goal: Goal;
+  isHidden?: boolean;
   onEdit?: (id: string) => void;
   onToggle?: (id: string) => void;
   onFocusGoal?: (goalId: string) => void;
   onDelete?: (id: string) => void;
   onToggleSubGoal?: (subGoalId: string) => void;
+  onHide?: (id: string) => void;
 }
 
-export default function GoalCard({ goal, onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal }: GoalCardProps) {
+export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onHide }: GoalCardProps) {
   const [expanded, setExpanded] = useState(true);
   const completedSubs = goal.subGoals.filter(s => s.completed).length;
 
   return (
     <div
       className={`group rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
-        goal.completed ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
+        isHidden ? 'opacity-40 border-dashed' : goal.completed ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
       } ${goal.skipped ? 'opacity-40' : ''}`}
     >
       <div className="flex items-start gap-3">
@@ -71,6 +73,13 @@ export default function GoalCard({ goal, onToggle, onEdit, onFocusGoal, onDelete
                   <Focus className="h-3.5 w-3.5" />
                 </button>
               )}
+              <button
+                onClick={() => onHide?.(goal.id)}
+                className="p-1 rounded hover:bg-accent text-muted-foreground"
+                title={isHidden ? 'Mostrar hoy' : 'Ocultar hoy'}
+              >
+                {isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+              </button>
               <button onClick={() => onEdit?.(goal.id)} className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
               <button onClick={() => onDelete?.(goal.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
             </div>

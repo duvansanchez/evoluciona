@@ -87,6 +87,10 @@ Hay dos `.env` separados, **no se pisan**:
   el usuario tome una decisión.
 - No dar recomendaciones a medias. Si no estoy seguro de todos los
   requisitos de una opción, investigar primero antes de sugerirla.
+- Cuando el usuario use terminología imprecisa para referirse a elementos
+  de UI (ej: "cuadrito de al lado" → sidebar, "cajita de arriba" → navbar,
+  "el popup" → modal/dialog), corregirle el término correcto antes de
+  proceder con la tarea.
 
 ## Git
 
