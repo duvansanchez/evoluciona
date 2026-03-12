@@ -103,5 +103,6 @@ def get_db() -> Generator:
 def init_db():
     """
     Crea todas las tablas definidas en los modelos.
+    Los modelos deben estar importados antes de llamar esta función.
     """
-    Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=get_engine())

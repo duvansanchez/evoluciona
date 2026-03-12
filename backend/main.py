@@ -30,6 +30,12 @@ try:
     from app.services.report_scheduler_service import initialize_scheduler
     print("✅ Scheduler service importado", flush=True)
 
+    # Importar modelos para que se registren en Base.metadata antes de create_all
+    import app.models.models  # noqa: F401
+    from app.db.database import init_db
+    init_db()
+    print("✅ Tablas de BD verificadas/creadas", flush=True)
+
 except Exception as e:
     print(f"❌ Error en importaciones: {e}", flush=True)
     import traceback
