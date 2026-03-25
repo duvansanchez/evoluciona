@@ -177,6 +177,14 @@ if cfg["enabled"]:
 else:
     logger.info("[Scheduler] Iniciado en modo deshabilitado")
 
+# Recordatorios diarios
+try:
+    from app.services.reminder_service import sync_reminder_jobs
+    sync_reminder_jobs()
+    logger.info("[Reminder] Jobs de recordatorios sincronizados")
+except Exception as rem_err:
+    logger.warning(f"[Reminder] No se pudieron inicializar los jobs: {rem_err}")
+
 
 if __name__ == "__main__":
     import uvicorn

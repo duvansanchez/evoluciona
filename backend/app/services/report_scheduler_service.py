@@ -169,6 +169,11 @@ def update_scheduler_config(changes: Dict[str, Any]) -> Dict[str, Any]:
     return get_scheduler_state()
 
 
+def get_scheduler() -> BackgroundScheduler:
+    """Retorna la instancia compartida del scheduler."""
+    return _scheduler
+
+
 def get_scheduler_state() -> Dict[str, Any]:
     config = load_schedule_config()
     job = _scheduler.get_job(JOB_ID)

@@ -137,9 +137,15 @@ export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal
                 Subobjetivos ({completedSubs}/{goal.subGoals.length})
               </button>
               {/* Progress bar */}
-              <div className="mt-1.5 h-1 w-full rounded-full bg-muted overflow-hidden">
+              <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary transition-all"
+                  className={`h-full rounded-full transition-all ${
+                    completedSubs === goal.subGoals.length
+                      ? 'bg-green-500'
+                      : completedSubs > 0
+                        ? 'bg-primary'
+                        : 'bg-muted-foreground/30'
+                  }`}
                   style={{ width: `${(completedSubs / goal.subGoals.length) * 100}%` }}
                 />
               </div>

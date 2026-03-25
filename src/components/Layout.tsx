@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { Target, BookOpen, BarChart3, Menu, X, Sparkles, MessageCircleQuestion, CalendarDays } from 'lucide-react';
+import { Target, BookOpen, BarChart3, Menu, X, Sparkles, MessageCircleQuestion, CalendarDays, LayoutDashboard } from 'lucide-react';
 import { useState } from 'react';
 import NotificationBell from './notifications/NotificationBell';
 import ThemeToggle from './theme-toggle';
 
 const navItems = [
+  { to: '/', label: 'Inicio', icon: LayoutDashboard, end: true },
   { to: '/goals', label: 'Objetivos', icon: Target },
   { to: '/questions', label: 'Preguntas', icon: MessageCircleQuestion },
   { to: '/phrases', label: 'Frases', icon: BookOpen },
@@ -29,10 +30,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {navItems.map(({ to, label, icon: Icon }) => (
+            {navItems.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
                 to={to}
+                end={end}
                 className={({ isActive }) =>
                   `flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors
                   ${isActive
@@ -64,10 +66,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile nav */}
         {mobileOpen && (
           <nav className="md:hidden border-t border-border bg-card p-3 animate-fade-in">
-            {navItems.map(({ to, label, icon: Icon }) => (
+            {navItems.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
                 to={to}
+                end={end}
                 onClick={() => setMobileOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors

@@ -579,6 +579,52 @@ export const rutinasAPI = {
   },
 };
 
+export interface DashboardData {
+  rachas: { rutinas: number; preguntas: number; objetivos: number };
+  hoy: {
+    objetivos: { total: number; completados: number };
+    rutinas: { total: number; completadas: number };
+    preguntas: { respondidas: number; total: number };
+  };
+  frase_del_dia: { texto: string; autor: string | null } | null;
+  today: string;
+}
+
+export interface ReminderPartConfig { enabled: boolean; hour: number; minute: number; }
+export interface ReminderConfig { manana: ReminderPartConfig; noche: ReminderPartConfig; }
+
+export const remindersAPI = {
+  getConfig: async (): Promise<ReminderConfig> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/config`);
+    if (!r.ok) throw new Error('Error fetching reminder config');
+    return r.json();
+  },
+  updateConfig: async (config: ReminderConfig): Promise<ReminderConfig> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!r.ok) throw new Error('Error updating reminder config');
+    return r.json();
+  },
+  testReminder: async (parte: 'manana' | 'noche'): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/test/${parte}`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error enviando recordatorio de prueba');
+    }
+  },
+};
+
+export const statsAPI = {
+  getDashboard: async (): Promise<DashboardData> => {
+    const r = await fetch(`${API_BASE_URL}/stats/dashboard`);
+    if (!r.ok) throw new Error('Error fetching dashboard');
+    return r.json();
+  },
+};
+
 /**
  * Función auxiliar para hacer fetch con manejo de errores
  */
