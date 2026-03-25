@@ -51,7 +51,8 @@ const addDays = (date: Date, n: number): Date => {
   return d;
 };
 
-const toISODate = (d: Date): string => d.toISOString().slice(0, 10);
+const toISODate = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const formatWeekLabel = (start: Date): string => {
   const end = addDays(start, 6);
@@ -60,6 +61,25 @@ const formatWeekLabel = (start: Date): string => {
 
 const isToday = (isoDate: string): boolean => toISODate(new Date()) === isoDate;
 
+// ── Helpers de calendario mensual ─────────────────────────────────────────────
+
+const buildMonthCalendar = (month: Date): Date[] => {
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const firstOfMonth = new Date(y, m, 1);
+  const lastOfMonth = new Date(y, m + 1, 0);
+  const startDay = getMonday(firstOfMonth);
+  const endDow = lastOfMonth.getDay();
+  const endDay = addDays(lastOfMonth, endDow === 0 ? 0 : 7 - endDow);
+  const days: Date[] = [];
+  let d = startDay;
+  while (d <= endDay) {
+    days.push(d);
+    d = addDays(d, 1);
+  }
+  return days;
+};
+
 // ── Componente ────────────────────────────────────────────────────────────────
 
 export default function RutinaPage() {
@@ -67,6 +87,12 @@ export default function RutinaPage() {
   const [semana, setSemana] = useState<DiaSemana[]>([]);
   const [rutinas, setRutinas] = useState<Rutina[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Historial
+  const [activeView, setActiveView] = useState<'semana' | 'historial'>('semana');
+  const [historialMonth, setHistorialMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [historialData, setHistorialData] = useState<RutinaAsignacion[]>([]);
+  const [historialLoading, setHistorialLoading] = useState(false);
 
   // Modal crear/editar rutina
   const [showRutinaModal, setShowRutinaModal] = useState(false);
@@ -114,6 +140,19 @@ export default function RutinaPage() {
   useEffect(() => {
     fetchSemana(weekStart);
   }, [weekStart]);
+
+  useEffect(() => {
+    if (activeView !== 'historial') return;
+    const y = historialMonth.getFullYear();
+    const m = historialMonth.getMonth();
+    const fechaDesde = toISODate(new Date(y, m, 1));
+    const fechaHasta = toISODate(new Date(y, m + 1, 0));
+    setHistorialLoading(true);
+    rutinasAPI.getHistorial(fechaDesde, fechaHasta)
+      .then(setHistorialData)
+      .catch(console.error)
+      .finally(() => setHistorialLoading(false));
+  }, [activeView, historialMonth]);
 
   // ── Helpers de estado local ─────────────────────────────────────────────────
 
@@ -243,8 +282,28 @@ export default function RutinaPage() {
         </button>
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 mb-6 p-1 rounded-xl bg-muted w-fit">
+        <button
+          onClick={() => setActiveView('semana')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            activeView === 'semana' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Semana
+        </button>
+        <button
+          onClick={() => setActiveView('historial')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            activeView === 'historial' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Historial
+        </button>
+      </div>
+
       {/* Navegación de semana */}
-      <div className="flex items-center justify-between mb-4">
+      <div className={`flex items-center justify-between mb-4 ${activeView !== 'semana' ? 'hidden' : ''}`}>
         <button
           onClick={() => setWeekStart(prev => addDays(prev, -7))}
           className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
@@ -269,7 +328,7 @@ export default function RutinaPage() {
       </div>
 
       {/* Grid semanal */}
-      <div className="mb-8 rounded-xl border border-border bg-card overflow-hidden">
+      <div className={`mb-8 rounded-xl border border-border bg-card overflow-hidden ${activeView !== 'semana' ? 'hidden' : ''}`}>
         {/* Cabecera de días */}
         <div className="grid grid-cols-[80px_repeat(7,1fr)] border-b border-border">
           <div className="px-3 py-2" />
@@ -380,6 +439,124 @@ export default function RutinaPage() {
           </div>
         ))}
       </div>
+
+      {/* Vista Historial mensual */}
+      {activeView === 'historial' && (
+        <div className="mb-8">
+          {/* Navegación de mes */}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => setHistorialMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <span className="text-sm font-semibold text-foreground capitalize">
+              {historialMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+            </span>
+            <button
+              onClick={() => setHistorialMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Stats del mes */}
+          {!historialLoading && (() => {
+            const total = historialData.length;
+            const completadas = historialData.filter(a => a.completada).length;
+            const pct = total > 0 ? Math.round(completadas / total * 100) : 0;
+            return (
+              <div className="flex gap-4 mb-4 p-3 rounded-xl bg-muted/50 border border-border">
+                <div className="text-center flex-1">
+                  <p className="text-lg font-bold text-foreground">{total}</p>
+                  <p className="text-[11px] text-muted-foreground">Asignadas</p>
+                </div>
+                <div className="w-px bg-border" />
+                <div className="text-center flex-1">
+                  <p className="text-lg font-bold text-green-500">{completadas}</p>
+                  <p className="text-[11px] text-muted-foreground">Completadas</p>
+                </div>
+                <div className="w-px bg-border" />
+                <div className="text-center flex-1">
+                  <p className={`text-lg font-bold ${pct >= 70 ? 'text-green-500' : pct >= 40 ? 'text-amber-500' : 'text-red-500'}`}>
+                    {pct}%
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">Cumplimiento</p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Calendario mensual */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            {/* Cabecera días */}
+            <div className="grid grid-cols-7 border-b border-border">
+              {DAY_NAMES.map(d => (
+                <div key={d} className="py-2 text-center text-[11px] font-semibold text-muted-foreground uppercase">{d}</div>
+              ))}
+            </div>
+
+            {historialLoading ? (
+              <div className="h-48 flex items-center justify-center text-sm text-muted-foreground">Cargando...</div>
+            ) : (() => {
+              const calDays = buildMonthCalendar(historialMonth);
+              const asigByDate: Record<string, RutinaAsignacion[]> = {};
+              historialData.forEach(a => {
+                if (!asigByDate[a.fecha]) asigByDate[a.fecha] = [];
+                asigByDate[a.fecha].push(a);
+              });
+              const weeks: Date[][] = [];
+              for (let i = 0; i < calDays.length; i += 7) weeks.push(calDays.slice(i, i + 7));
+
+              return (
+                <div>
+                  {weeks.map((week, wi) => (
+                    <div key={wi} className="grid grid-cols-7 border-b border-border last:border-b-0">
+                      {week.map(day => {
+                        const iso = toISODate(day);
+                        const inMonth = day.getMonth() === historialMonth.getMonth();
+                        const dayAsigs = asigByDate[iso] || [];
+                        const today = isToday(iso);
+                        return (
+                          <div
+                            key={iso}
+                            className={`p-1.5 min-h-[72px] border-r border-border last:border-r-0 ${
+                              today ? 'bg-primary/5' : !inMonth ? 'bg-muted/30' : ''
+                            }`}
+                          >
+                            <p className={`text-xs font-medium mb-1 ${
+                              today ? 'text-primary font-bold' : !inMonth ? 'text-muted-foreground/30' : 'text-foreground'
+                            }`}>
+                              {day.getDate()}
+                            </p>
+                            <div className="space-y-0.5">
+                              {dayAsigs.map(a => (
+                                <div
+                                  key={a.id}
+                                  title={`${a.rutina.nombre}`}
+                                  className={`flex items-center gap-1 rounded px-1 py-0.5 ${
+                                    a.completada ? 'bg-green-500/15' : 'bg-red-500/10'
+                                  }`}
+                                >
+                                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${COLOR_BG[a.rutina.color || 'blue']}`} />
+                                  <p className="text-[9px] truncate text-foreground leading-tight flex-1">{a.rutina.nombre}</p>
+                                  {a.completada && <CheckCircle2 className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Biblioteca de rutinas */}
       <section>

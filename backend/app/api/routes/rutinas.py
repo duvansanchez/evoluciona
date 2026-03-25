@@ -161,6 +161,25 @@ def get_objetivos_recurrentes(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/historial")
+def get_historial(
+    fecha_desde: str = Query(..., description="Fecha de inicio (YYYY-MM-DD)"),
+    fecha_hasta: str = Query(..., description="Fecha de fin (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+):
+    """Obtener todas las asignaciones en un rango de fechas."""
+    asignaciones = (
+        db.query(RutinaAsignacion)
+        .filter(
+            RutinaAsignacion.fecha >= fecha_desde,
+            RutinaAsignacion.fecha <= fecha_hasta,
+        )
+        .order_by(RutinaAsignacion.fecha)
+        .all()
+    )
+    return [_asignacion_to_dict(a) for a in asignaciones]
+
+
 @router.get("/{rutina_id}", response_model=RutinaResponse)
 def get_rutina(rutina_id: int, db: Session = Depends(get_db)):
     r = db.query(Rutina).filter(Rutina.id == rutina_id).first()

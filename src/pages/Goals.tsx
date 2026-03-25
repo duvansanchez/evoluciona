@@ -152,7 +152,7 @@ export default function Goals() {
   const [allGoalsMapped, setAllGoalsMapped] = useState<Goal[]>([]);
   const [historicSubgoalsLoaded, setHistoricSubgoalsLoaded] = useState(false);
   const [hiddenGoalIds, setHiddenGoalIds] = useState<Set<string>>(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA');
     const raw = localStorage.getItem(`hidden_goals_${today}`);
     return new Set(raw ? JSON.parse(raw) : []);
   });
@@ -250,7 +250,7 @@ export default function Goals() {
   }, []);
 
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA');
     rutinasAPI.getSemana(today).then(semana => {
       const diaHoy = semana.find(d => d.fecha === today);
       setTodayAsignaciones(diaHoy?.asignaciones ?? []);
@@ -326,14 +326,31 @@ export default function Goals() {
   const handleToggle = (id: string) => {
     const goal = goals.find(g => g.id === id);
     if (!goal) return;
-    
+
     const newCompleted = !goal.completed;
     const completedAt = newCompleted ? new Date().toISOString() : undefined;
 
-    setGoals(prev => prev.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g));
+    const updatedGoals = goals.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g);
+    setGoals(updatedGoals);
     setAllGoalsMapped(prev => prev.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g));
-    
+
     void persistGoalUpdate(id, { completed: newCompleted, completedAt });
+
+    // Auto-completar/descompletar rutinas según estado de sus objetivos
+    todayAsignaciones.forEach(asig => {
+      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
+      if (rutinaObjIds.length === 0 || !rutinaObjIds.includes(id)) return;
+
+      const allDone = rutinaObjIds.every(oid =>
+        oid === id ? newCompleted : (updatedGoals.find(g => g.id === oid)?.completed ?? false)
+      );
+
+      if (allDone !== asig.completada) {
+        rutinasAPI.updateAsignacion(asig.id, { completada: allDone })
+          .then(updated => setTodayAsignaciones(prev => prev.map(a => a.id === updated.id ? updated : a)))
+          .catch(console.error);
+      }
+    });
   };
 
   const persistGoalUpdate = async (goalId: string, updates: { completed: boolean; completedAt?: string }) => {
@@ -720,7 +737,7 @@ export default function Goals() {
   };
 
   const handleHideGoal = (id: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA');
     setHiddenGoalIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) {

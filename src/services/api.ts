@@ -562,6 +562,12 @@ export const rutinasAPI = {
     return r.json();
   },
 
+  getHistorial: async (fechaDesde: string, fechaHasta: string): Promise<RutinaAsignacion[]> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/historial?fecha_desde=${fechaDesde}&fecha_hasta=${fechaHasta}`);
+    if (!r.ok) throw new Error('Error fetching historial');
+    return r.json();
+  },
+
   addObjetivo: async (rutinaId: number, objetivoId: number): Promise<void> => {
     const r = await fetch(`${API_BASE_URL}/rutinas/${rutinaId}/objetivos/${objetivoId}`, { method: 'POST' });
     if (!r.ok) throw new Error('Error adding objetivo to rutina');

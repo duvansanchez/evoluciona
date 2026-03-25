@@ -49,7 +49,7 @@ export default function GoalFocusModal({
       setHasUnsavedChanges(false);
       setShowHiddenSubGoals(false);
       // Cargar subobjetivos ocultos del día desde localStorage
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toLocaleDateString('en-CA');
       const raw = localStorage.getItem(`hidden_subgoals_${goal.id}_${today}`);
       setHiddenSubGoalIds(new Set(raw ? JSON.parse(raw) : []));
     }
@@ -160,7 +160,7 @@ export default function GoalFocusModal({
 
   const handleHideSubGoal = (subGoalId: string) => {
     if (!goal) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('en-CA');
     setHiddenSubGoalIds(prev => {
       const next = new Set(prev);
       if (next.has(subGoalId)) next.delete(subGoalId);
