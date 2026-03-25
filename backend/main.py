@@ -36,7 +36,7 @@ try:
     init_db()
     print("✅ Tablas de BD verificadas/creadas", flush=True)
 
-    # Migración: agregar columna config a review_plans si no existe
+    # Migraciones: agregar columnas si no existen
     try:
         from sqlalchemy import text
         with get_engine().connect() as conn:
@@ -47,10 +47,17 @@ try:
                 )
                 ALTER TABLE review_plans ADD config NVARCHAR(MAX) NULL
             """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutina_asignaciones') AND name = N'objetivo_ids'
+                )
+                ALTER TABLE rutina_asignaciones ADD objetivo_ids NVARCHAR(MAX) NULL
+            """))
             conn.commit()
-        print("✅ Migración review_plans.config verificada", flush=True)
+        print("✅ Migraciones verificadas", flush=True)
     except Exception as mig_err:
-        print(f"⚠️  Migración review_plans.config omitida: {mig_err}", flush=True)
+        print(f"⚠️  Migración omitida: {mig_err}", flush=True)
 
 except Exception as e:
     print(f"❌ Error en importaciones: {e}", flush=True)

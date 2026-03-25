@@ -14,6 +14,7 @@ import Progress from "./pages/Progress";
 import Questions from "./pages/Questions";
 import QuestionsAnswer from "./pages/QuestionsAnswer";
 import QuestionsAdmin from "./pages/QuestionsAdmin";
+import Rutina from "./pages/Rutina";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="/questions" element={<Questions />} />
               <Route path="/questions/answer" element={<QuestionsAnswer />} />
               <Route path="/questions/admin" element={<QuestionsAdmin />} />
+              <Route path="/rutina" element={<Rutina />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Layout>

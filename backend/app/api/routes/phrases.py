@@ -15,11 +15,14 @@ from app.schemas.schemas import (
 from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService
 )
-from app.models.models import ReviewPlan
+from app.models.models import ReviewPlan, Phrase as PhraseModel
+from sqlalchemy import or_, and_
 from typing import List
 import math
 import json
 from datetime import datetime
+
+DOMAIN_CAP = 30  # repasos necesarios para considerar una frase al 100% dominada
 
 router = APIRouter(prefix="/api/phrases", tags=["phrases"])
 

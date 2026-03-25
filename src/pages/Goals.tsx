@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, Eye, EyeOff, Grid3X3, History, List, Plus, Target, TrendingUp } from 'lucide-react';
+import { CheckCircle2, Circle, Eye, EyeOff, Grid3X3, History, List, Plus, Target, TrendingUp, Sun, Sunset, Moon } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalModal from '@/components/goals/GoalModal';
 import GoalFocusModal from '@/components/goals/GoalFocusModal';
 import FocusModal from '@/components/goals/FocusModal';
-import { goalsAPI } from '@/services/api';
+import { goalsAPI, rutinasAPI } from '@/services/api';
 import type { Goal, GoalCategory, SubGoal } from '@/types';
+import type { RutinaAsignacion } from '@/services/api';
 
 const tabs: { key: GoalCategory | 'all' | 'historicos'; label: string }[] = [
   { key: 'all', label: 'Todos' },
@@ -124,9 +125,21 @@ const mapBackendGoal = (item: any): Goal => ({
   scheduledFor: item.programado_para || undefined,
 });
 
+const PARTES_DIA = [
+  { value: 'morning', label: 'Mañana', icon: Sun, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+  { value: 'afternoon', label: 'Tarde', icon: Sunset, color: 'text-orange-500', bg: 'bg-orange-500/10' },
+  { value: 'evening', label: 'Noche', icon: Moon, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
+] as const;
+
+const COLOR_DOT: Record<string, string> = {
+  blue: 'bg-blue-500', green: 'bg-green-500', amber: 'bg-amber-500',
+  purple: 'bg-purple-500', red: 'bg-red-500', pink: 'bg-pink-500', cyan: 'bg-cyan-500',
+};
+
 export default function Goals() {
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all' | 'historicos'>('daily');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [todayAsignaciones, setTodayAsignaciones] = useState<RutinaAsignacion[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -234,6 +247,14 @@ export default function Goals() {
 
   useEffect(() => {
     loadGoals();
+  }, []);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    rutinasAPI.getSemana(today).then(semana => {
+      const diaHoy = semana.find(d => d.fecha === today);
+      setTodayAsignaciones(diaHoy?.asignaciones ?? []);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -848,35 +869,83 @@ export default function Goals() {
       </div>
 
       {activeTab !== 'historicos' ? (
-        <>
-          {/* Goals Grid */}
-          <div className={viewMode === 'grid'
-            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
-            : 'space-y-3'
-          }>
-            {sorted.map(goal => (
-              <GoalCard
-                key={goal.id}
-                goal={goal}
-                isHidden={hiddenGoalIds.has(goal.id)}
-                onToggle={handleToggle}
-                onEdit={handleEdit}
-                onFocusGoal={handleOpenGoalFocus}
-                onDelete={handleDeleteGoal}
-                onToggleSubGoal={handleToggleSubGoal}
-                onHide={handleHideGoal}
-              />
-            ))}
-          </div>
+        (() => {
+          // Construir grupos de rutinas activas hoy
+          const seenGoalIds = new Set<string>();
+          const rutinaGroups = todayAsignaciones
+            .map(asig => {
+              const goalsInRutina = sorted.filter(g =>
+                asig.rutina.objetivos.some(o => o.id.toString() === g.id)
+              );
+              return { asig, goals: goalsInRutina };
+            })
+            .filter(({ goals }) => goals.length > 0);
 
-          {sorted.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Target className="h-12 w-12 text-muted-foreground/30 mb-4" />
-              <p className="text-muted-foreground font-medium">No hay objetivos en esta categoría</p>
-              <p className="text-xs text-muted-foreground mt-1">Crea tu primer objetivo para empezar</p>
-            </div>
-          )}
-        </>
+          // Marcar cuáles ya están agrupados
+          rutinaGroups.forEach(({ goals }) => goals.forEach(g => seenGoalIds.add(g.id)));
+          const ungrouped = sorted.filter(g => !seenGoalIds.has(g.id));
+
+          const gridClass = viewMode === 'grid'
+            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
+            : 'space-y-3';
+
+          const goalCardProps = (goal: Goal) => ({
+            goal,
+            isHidden: hiddenGoalIds.has(goal.id),
+            onToggle: handleToggle,
+            onEdit: handleEdit,
+            onFocusGoal: handleOpenGoalFocus,
+            onDelete: handleDeleteGoal,
+            onToggleSubGoal: handleToggleSubGoal,
+            onHide: handleHideGoal,
+          });
+
+          return (
+            <>
+              {/* Grupos por rutina */}
+              {rutinaGroups.map(({ asig, goals: groupGoals }) => {
+                const parte = PARTES_DIA.find(p => p.value === asig.parte_dia);
+                const PartIcon = parte?.icon ?? Sun;
+                return (
+                  <div key={asig.id} className="mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <PartIcon className={`h-3.5 w-3.5 ${parte?.color}`} />
+                      <span className={`text-xs font-semibold ${parte?.color}`}>{parte?.label}</span>
+                      <span className="text-xs text-muted-foreground">·</span>
+                      <div className={`w-2 h-2 rounded-full ${COLOR_DOT[asig.rutina.color || 'blue']}`} />
+                      <span className="text-xs font-semibold text-foreground">{asig.rutina.nombre}</span>
+                    </div>
+                    <div className={gridClass}>
+                      {groupGoals.map(goal => <GoalCard key={goal.id} {...goalCardProps(goal)} />)}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Objetivos sin rutina */}
+              {ungrouped.length > 0 && (
+                <div>
+                  {rutinaGroups.length > 0 && (
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-xs font-semibold text-muted-foreground">Sin rutina</span>
+                    </div>
+                  )}
+                  <div className={gridClass}>
+                    {ungrouped.map(goal => <GoalCard key={goal.id} {...goalCardProps(goal)} />)}
+                  </div>
+                </div>
+              )}
+
+              {sorted.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-20 text-center">
+                  <Target className="h-12 w-12 text-muted-foreground/30 mb-4" />
+                  <p className="text-muted-foreground font-medium">No hay objetivos en esta categoría</p>
+                  <p className="text-xs text-muted-foreground mt-1">Crea tu primer objetivo para empezar</p>
+                </div>
+              )}
+            </>
+          );
+        })()
       ) : (
         /* Vista Históricos */
         historicFiltered.length === 0 ? (

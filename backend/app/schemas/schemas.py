@@ -308,6 +308,103 @@ class DailySessionResponse(BaseModel):
         from_attributes = True
 
 
+# ==================== GOAL SIMPLE (para uso en Rutinas) ====================
+
+class GoalSimpleResponse(BaseModel):
+    id: int
+    titulo: str
+    icono: Optional[str] = None
+    categoria: Optional[str] = None
+    frecuencia: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== RUTINAS ====================
+
+class RutinaBloqueCreate(BaseModel):
+    nombre: str
+    orden: int = 0
+    hora_inicio: Optional[str] = None
+    duracion_minutos: Optional[int] = None
+    notas: Optional[str] = None
+
+
+class RutinaBloqueResponse(BaseModel):
+    id: int
+    rutina_id: int
+    nombre: str
+    orden: int
+    hora_inicio: Optional[str] = None
+    duracion_minutos: Optional[int] = None
+    notas: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RutinaCreate(BaseModel):
+    nombre: str
+    parte_dia: str
+    color: Optional[str] = None
+    descripcion: Optional[str] = None
+    bloques: List[RutinaBloqueCreate] = []
+
+
+class RutinaUpdate(BaseModel):
+    nombre: Optional[str] = None
+    parte_dia: Optional[str] = None
+    color: Optional[str] = None
+    descripcion: Optional[str] = None
+    bloques: Optional[List[RutinaBloqueCreate]] = None
+
+
+class RutinaResponse(BaseModel):
+    id: int
+    nombre: str
+    parte_dia: str
+    color: Optional[str] = None
+    descripcion: Optional[str] = None
+    activa: bool
+    fecha_creacion: Optional[datetime] = None
+    bloques: List[RutinaBloqueResponse] = []
+    objetivos: List[GoalSimpleResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
+class RutinaAsignacionCreate(BaseModel):
+    fecha: str
+    parte_dia: str
+    rutina_id: int
+
+
+class RutinaAsignacionUpdate(BaseModel):
+    rutina_id: Optional[int] = None
+    completada: Optional[bool] = None
+    objetivo_ids: Optional[List[int]] = None
+
+
+class RutinaAsignacionResponse(BaseModel):
+    id: int
+    fecha: str
+    parte_dia: str
+    rutina_id: int
+    completada: bool
+    objetivo_ids: List[int] = []
+    rutina: RutinaResponse
+
+    class Config:
+        from_attributes = True
+
+
+class DiaSemanaResponse(BaseModel):
+    fecha: str
+    asignaciones: List[RutinaAsignacionResponse]
+
+
 # ==================== REVIEW PLANS ====================
 
 class ReviewPlanConfig(BaseModel):
@@ -334,6 +431,7 @@ class ReviewPlanResponse(BaseModel):
     name: str
     targets: List[str]
     config: ReviewPlanConfig = ReviewPlanConfig()
+    domain_level: float = 0.0
     created_at: Optional[str] = None
 
     class Config:

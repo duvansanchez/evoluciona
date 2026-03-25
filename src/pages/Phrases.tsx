@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, Settings, Settings2 } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import MetricCard from '@/components/MetricCard';
 import PhraseCard from '@/components/phrases/PhraseCard';
 import PhraseModal from '@/components/phrases/PhraseModal';
@@ -78,6 +83,7 @@ export default function Phrases() {
   const [reviewSessionLabel, setReviewSessionLabel] = useState('Todas');
   const [reviewPlans, setReviewPlans] = useState<ReviewPlan[]>([]);
   const [configuringPlan, setConfiguringPlan] = useState<ReviewPlan | null>(null);
+  const [deletingPlanId, setDeletingPlanId] = useState<number | null>(null);
   const [planName, setPlanName] = useState('');
   const [targetToAdd, setTargetToAdd] = useState('');
   const [selectedPlanTargets, setSelectedPlanTargets] = useState<string[]>([]);
@@ -711,8 +717,8 @@ export default function Phrases() {
                     <Settings2 className="h-3.5 w-3.5" />
                   </button>
                   <button
-                    onClick={() => handleDeleteReviewPlan(Number(plan.id))}
-                    className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    onClick={() => setDeletingPlanId(plan.id)}
+                    className="rounded-lg border border-destructive/40 bg-background px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
                   >
                     Eliminar
                   </button>
@@ -788,6 +794,27 @@ export default function Phrases() {
         categories={categories}
         onNewRandom={handleNewRandomPhrase}
       />
+
+      {/* Confirmación eliminar plan */}
+      <AlertDialog open={deletingPlanId !== null} onOpenChange={open => { if (!open) setDeletingPlanId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar planificación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. La planificación y su configuración se eliminarán permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deletingPlanId !== null) handleDeleteReviewPlan(deletingPlanId); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Sí, eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Plan Config Modal */}
       {configuringPlan && (

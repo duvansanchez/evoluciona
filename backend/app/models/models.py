@@ -5,8 +5,8 @@ Mapean las tablas de SQL Server.
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Integer, Boolean, DateTime, 
-    ForeignKey, Text, Numeric, Float, Enum as SQLEnum, Unicode
+    Column, String, Integer, Boolean, DateTime,
+    ForeignKey, Text, Numeric, Float, Enum as SQLEnum, Unicode, Table
 )
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -211,6 +211,64 @@ class DailyQuestionsSession(Base):
     total_questions = Column(Integer, default=0)
     answered_questions = Column(Integer, default=0)
     created_at = Column(String(30), nullable=True)
+
+
+rutina_objetivos = Table(
+    "rutina_objetivos",
+    Base.metadata,
+    Column("rutina_id", Integer, ForeignKey("rutinas.id"), primary_key=True),
+    Column("objetivo_id", Integer, ForeignKey("objetivos.id"), primary_key=True),
+)
+
+
+class Rutina(Base):
+    """Plantilla reutilizable de rutina."""
+    __tablename__ = "rutinas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(255), nullable=False)
+    parte_dia = Column(String(20), nullable=False)  # morning | afternoon | evening
+    color = Column(String(30), nullable=True)
+    descripcion = Column(Text, nullable=True)
+    activa = Column(Boolean, default=True)
+    fecha_creacion = Column(DateTime, nullable=True)
+
+    bloques = relationship(
+        "RutinaBloque", back_populates="rutina",
+        cascade="all, delete-orphan", order_by="RutinaBloque.orden"
+    )
+    asignaciones = relationship("RutinaAsignacion", back_populates="rutina")
+    objetivos = relationship("Goal", secondary=rutina_objetivos)
+
+
+class RutinaBloque(Base):
+    """Actividad dentro de una rutina."""
+    __tablename__ = "rutina_bloques"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rutina_id = Column(Integer, ForeignKey("rutinas.id"), nullable=False)
+    nombre = Column(String(255), nullable=False)
+    orden = Column(Integer, nullable=False, default=0)
+    hora_inicio = Column(String(5), nullable=True)   # "06:30"
+    duracion_minutos = Column(Integer, nullable=True)
+    notas = Column(Text, nullable=True)
+
+    rutina = relationship("Rutina", back_populates="bloques")
+
+
+class RutinaAsignacion(Base):
+    """Asignación de una rutina a un día y parte del día específicos."""
+    __tablename__ = "rutina_asignaciones"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fecha = Column(String(10), nullable=False)        # "2026-03-23"
+    parte_dia = Column(String(20), nullable=False)
+    rutina_id = Column(Integer, ForeignKey("rutinas.id"), nullable=False)
+    completada = Column(Boolean, default=False)
+    objetivo_ids = Column(Text, nullable=True)        # JSON: [1, 2, 3]
+    fecha_creacion = Column(DateTime, nullable=True)
+
+    rutina = relationship("Rutina", back_populates="asignaciones")
 
 
 class ReviewPlan(Base):

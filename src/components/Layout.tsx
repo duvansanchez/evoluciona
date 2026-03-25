@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Target, BookOpen, BarChart3, Menu, X, Sparkles, MessageCircleQuestion } from 'lucide-react';
+import { Target, BookOpen, BarChart3, Menu, X, Sparkles, MessageCircleQuestion, CalendarDays } from 'lucide-react';
 import { useState } from 'react';
 import NotificationBell from './notifications/NotificationBell';
 import ThemeToggle from './theme-toggle';
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/goals', label: 'Objetivos', icon: Target },
   { to: '/questions', label: 'Preguntas', icon: MessageCircleQuestion },
   { to: '/phrases', label: 'Frases', icon: BookOpen },
+  { to: '/rutina', label: 'Rutina', icon: CalendarDays },
   { to: '/progress', label: 'Progreso', icon: BarChart3 },
 ];
 

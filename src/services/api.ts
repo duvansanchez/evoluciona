@@ -426,6 +426,154 @@ export const reviewPlansAPI = {
 };
 
 /**
+ * Rutinas API
+ */
+export interface GoalSimple {
+  id: number;
+  titulo: string;
+  icono?: string;
+  categoria?: string;
+  frecuencia?: string;
+}
+
+export interface RutinaBloque {
+  id: number;
+  rutina_id: number;
+  nombre: string;
+  orden: number;
+  hora_inicio?: string;
+  duracion_minutos?: number;
+  notas?: string;
+}
+
+export interface Rutina {
+  id: number;
+  nombre: string;
+  parte_dia: 'morning' | 'afternoon' | 'evening';
+  color?: string;
+  descripcion?: string;
+  activa: boolean;
+  fecha_creacion?: string;
+  bloques: RutinaBloque[];
+  objetivos: GoalSimple[];
+}
+
+export interface RutinaAsignacion {
+  id: number;
+  fecha: string;
+  parte_dia: string;
+  rutina_id: number;
+  completada: boolean;
+  objetivo_ids: number[];
+  rutina: Rutina;
+}
+
+export interface DiaSemana {
+  fecha: string;
+  asignaciones: RutinaAsignacion[];
+}
+
+export const rutinasAPI = {
+  getRutinas: async (): Promise<Rutina[]> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas`);
+    if (!r.ok) throw new Error('Error fetching rutinas');
+    return r.json();
+  },
+
+  createRutina: async (data: {
+    nombre: string;
+    parte_dia: string;
+    color?: string;
+    descripcion?: string;
+    bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
+  }): Promise<Rutina> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Error creating rutina');
+    return r.json();
+  },
+
+  updateRutina: async (id: number, data: {
+    nombre?: string;
+    parte_dia?: string;
+    color?: string;
+    descripcion?: string;
+    bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
+  }): Promise<Rutina> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Error updating rutina');
+    return r.json();
+  },
+
+  deleteRutina: async (id: number): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/${id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('Error deleting rutina');
+  },
+
+  getSemana: async (fechaInicio: string): Promise<DiaSemana[]> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/semana?fecha_inicio=${fechaInicio}`);
+    if (!r.ok) throw new Error('Error fetching semana');
+    return r.json();
+  },
+
+  createAsignacion: async (data: {
+    fecha: string;
+    parte_dia: string;
+    rutina_id: number;
+  }): Promise<RutinaAsignacion> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/asignaciones`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Error creating asignacion');
+    return r.json();
+  },
+
+  updateAsignacion: async (id: number, data: {
+    rutina_id?: number;
+    completada?: boolean;
+    objetivo_ids?: number[];
+  }): Promise<RutinaAsignacion> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/asignaciones/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Error updating asignacion');
+    return r.json();
+  },
+
+  deleteAsignacion: async (id: number): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/asignaciones/${id}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('Error deleting asignacion');
+  },
+
+  getRecurrenteGoals: async (): Promise<GoalSimple[]> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/objetivos-recurrentes`);
+    if (!r.ok) throw new Error('Error fetching objetivos recurrentes');
+    return r.json();
+  },
+
+  addObjetivo: async (rutinaId: number, objetivoId: number): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/${rutinaId}/objetivos/${objetivoId}`, { method: 'POST' });
+    if (!r.ok) throw new Error('Error adding objetivo to rutina');
+  },
+
+  removeObjetivo: async (rutinaId: number, objetivoId: number): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/rutinas/${rutinaId}/objetivos/${objetivoId}`, { method: 'DELETE' });
+    if (!r.ok) throw new Error('Error removing objetivo from rutina');
+  },
+};
+
+/**
  * Función auxiliar para hacer fetch con manejo de errores
  */
 export const fetchAPI = async (url: string, options?: RequestInit) => {
