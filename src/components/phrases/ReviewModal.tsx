@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, X } from 'lucide-react';
 import type { Phrase, PhraseCategory } from '../../types';
 import PhraseModal from './PhraseModal';
@@ -17,11 +17,15 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showNotes, setShowNotes] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [badgePopKey, setBadgePopKey] = useState(0);
+  const prevCategoryRef = useRef<{ categoryId: string | undefined; subcategoryId: string | undefined } | null>(null);
 
   useEffect(() => {
     if (open) {
       setCurrentIndex(0);
       setShowNotes(true);
+      prevCategoryRef.current = null;
+      setBadgePopKey(0);
     }
   }, [open]);
 
@@ -36,6 +40,19 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, currentIndex, phrases.length, showEditModal]);
+
+  useEffect(() => {
+    if (!open || phrases.length === 0) return;
+    const phrase = phrases[currentIndex];
+    const prev = prevCategoryRef.current;
+    const categoryChanged = prev && (prev.categoryId !== phrase.categoryId || prev.subcategoryId !== phrase.subcategoryId);
+
+    if (categoryChanged) {
+      setBadgePopKey(k => k + 1);
+    }
+
+    prevCategoryRef.current = { categoryId: phrase.categoryId, subcategoryId: phrase.subcategoryId };
+  }, [currentIndex, open]);
 
   if (!open || phrases.length === 0) return null;
 
@@ -60,7 +77,6 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
     if (currentIndex < phrases.length - 1) {
       handleNext();
     } else {
-      // Última frase, cerrar modal
       onOpenChange(false);
       setCurrentIndex(0);
     }
@@ -115,7 +131,7 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
         />
       </div>
 
-      {/* Main Content — scrollable, deja espacio para la barra fija inferior */}
+      {/* Main Content */}
       <div className="h-[calc(100vh-88px)] overflow-y-auto">
         <div className="container mx-auto px-4 py-8 pb-28">
           <div className="w-full max-w-3xl mx-auto">
@@ -141,8 +157,8 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
               </div>
             </div>
 
-            {/* Badges */}
-            <div className="flex justify-center gap-2 mb-5">
+            {/* Badges — pop animation on category change */}
+            <div key={badgePopKey} className="flex justify-center gap-2 mb-5" style={{ animation: badgePopKey > 0 ? 'badgePop 1.4s ease forwards' : undefined }}>
               {category && (
                 <span className="rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary">
                   {category.name}
@@ -154,6 +170,16 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
                 </span>
               )}
             </div>
+
+            <style>{`
+              @keyframes badgePop {
+                0%   { transform: scale(1); }
+                25%  { transform: scale(1.6); }
+                55%  { transform: scale(1.6); }
+                80%  { transform: scale(1.3); }
+                100% { transform: scale(1); }
+              }
+            `}</style>
 
             {/* Notes */}
             {currentPhrase.notes && (
