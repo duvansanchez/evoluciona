@@ -8,19 +8,22 @@ from app.db.database import get_db
 from app.schemas.schemas import (
     PhraseCategoryCreate, PhraseCategoryUpdate, PhraseCategoryResponse,
     PhraseCreate, PhraseUpdate, PhraseResponse,
-    PhrasesPaginatedResponse,
+    PhrasesPaginatedResponse, PaginatedResponse,
     PhraseSubcategoryCreate, PhraseSubcategoryUpdate, PhraseSubcategoryResponse,
     ReviewPlanCreate, ReviewPlanUpdate, ReviewPlanResponse,
+    PhraseReviewCreate, PhraseReviewLogResponse,
 )
 from app.services.phrase_service import (
-    PhraseCategoryService, PhraseSubcategoryService, PhraseService
+    PhraseCategoryService, PhraseSubcategoryService, PhraseService, build_phrase_report
 )
+from app.services.email_service import build_html_phrase_report, send_weekly_report
+from app.services.report_scheduler_service import record_report_event
 from app.models.models import ReviewPlan, Phrase as PhraseModel
 from sqlalchemy import or_, and_
 from typing import List
 import math
 import json
-from datetime import datetime
+from datetime import datetime, date
 
 DOMAIN_CAP = 30  # repasos necesarios para considerar una frase al 100% dominada
 
@@ -251,9 +254,132 @@ def delete_phrase(phrase_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{phrase_id}/review", response_model=PhraseResponse)
-def review_phrase(phrase_id: str, db: Session = Depends(get_db)):
+def review_phrase(
+    phrase_id: str,
+    data: PhraseReviewCreate | None = None,
+    db: Session = Depends(get_db)
+):
     """Registrar review de frase."""
-    db_phrase = PhraseService.review_phrase(db, phrase_id)
+    payload = data or PhraseReviewCreate()
+    db_phrase = PhraseService.review_phrase(
+        db,
+        phrase_id,
+        review_plan_id=payload.review_plan_id,
+        session_label=payload.session_label,
+    )
     if not db_phrase:
         raise HTTPException(status_code=404, detail="Phrase not found")
     return db_phrase
+
+
+@router.get("/review-logs", response_model=PaginatedResponse)
+def list_review_logs(
+    start_date: str = Query(None),
+    end_date: str = Query(None),
+    review_plan_id: int = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    """Obtener historial de repasos de frases para futuros informes."""
+    logs, total = PhraseService.get_review_logs(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        review_plan_id=review_plan_id,
+        page=page,
+        page_size=page_size,
+    )
+    pages = math.ceil(total / page_size)
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": pages,
+        "items": logs,
+    }
+
+
+@router.get("/report", response_model=dict)
+def get_phrase_report(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Obtener informe semanal o mensual del modulo de frases."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    parsed_reference: date | None = None
+    if reference_date:
+        try:
+            parsed_reference = date.fromisoformat(reference_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
+
+    return build_phrase_report(db, normalized_mode, parsed_reference)
+
+
+@router.post("/report/send-email", response_model=dict)
+def send_phrase_report_email(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Enviar el informe de frases del periodo actual al Gmail configurado."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    parsed_reference: date | None = None
+    if reference_date:
+        try:
+            parsed_reference = date.fromisoformat(reference_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
+
+    data = build_phrase_report(db, normalized_mode, parsed_reference)
+    html = build_html_phrase_report(data)
+    mode_label = "Semanal" if normalized_mode == "weekly" else "Mensual"
+    subject = f"Informe de Frases {mode_label} - {data['period_label']}"
+    ok = send_weekly_report(html, subject)
+
+    report_type = "phrases_weekly" if normalized_mode == "weekly" else "phrases_monthly"
+
+    if not ok:
+        record_report_event(
+            report_type=report_type,
+            status="failed",
+            week_label=data["period_label"],
+            source="manual",
+            details={
+                "mode": normalized_mode,
+                "total_reviews": data["total_reviews"],
+                "days_with_review": data["days_with_review"],
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo enviar el email. Verifica GMAIL_USER y GMAIL_APP_PASSWORD en .env"
+        )
+
+    record_report_event(
+        report_type=report_type,
+        status="sent",
+        week_label=data["period_label"],
+        source="manual",
+        details={
+            "mode": normalized_mode,
+            "total_reviews": data["total_reviews"],
+            "days_with_review": data["days_with_review"],
+        },
+    )
+
+    return {
+        "message": "Informe de frases enviado correctamente",
+        "period": data["period_label"],
+        "mode": normalized_mode,
+        "total_reviews": data["total_reviews"],
+        "days_with_review": data["days_with_review"],
+    }

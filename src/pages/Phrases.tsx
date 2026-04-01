@@ -1,6 +1,23 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Dices, Eye, Filter, Plus, RefreshCw, Settings, Settings2 } from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Dices,
+  Eye,
+  Filter,
+  Flame,
+  Info,
+  Plus,
+  RefreshCw,
+  Settings,
+  Settings2,
+  Target,
+} from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
@@ -13,9 +30,12 @@ import ReviewModal from '@/components/phrases/ReviewModal';
 import RandomPhraseModal from '@/components/phrases/RandomPhraseModal';
 import { phrasesAPI, reviewPlansAPI } from '@/services/api';
 import type { ReviewPlanConfig } from '@/services/api';
+import type { PhraseReportData } from '@/services/api';
 import type { Phrase, PhraseCategory } from '@/types';
 import { mockPhraseCategories } from '@/data/mockData';
 import PlanConfigModal from '@/components/phrases/PlanConfigModal';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ReviewPlan {
   id: number;
@@ -31,6 +51,57 @@ const DEFAULT_PLAN_CONFIG: ReviewPlanConfig = {
 };
 
 const PHRASES_PAGE_SIZE = 60;
+
+const getTodayIso = () => new Date().toISOString().slice(0, 10);
+
+const shiftReportReference = (referenceDate: string, mode: 'weekly' | 'monthly', delta: number) => {
+  const date = new Date(`${referenceDate}T12:00:00`);
+
+  if (mode === 'monthly') {
+    date.setMonth(date.getMonth() + delta);
+  } else {
+    date.setDate(date.getDate() + (delta * 7));
+  }
+
+  return date.toISOString().slice(0, 10);
+};
+
+const formatReportDate = (value?: string | null) => {
+  if (!value) return 'Nunca';
+
+  const date = new Date(value.includes('T') ? value : `${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString('es-CO', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
+
+function ReportSectionTitle({ title, help }: { title: string; help: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label={`Informacion sobre ${title}`}
+            >
+              <Info className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
+            {help}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </div>
+  );
+}
 
 // Mapear datos del backend al formato frontend
 const mapBackendPhrase = (item: any): Phrase => ({
@@ -81,7 +152,17 @@ export default function Phrases() {
   const [showInactive, setShowInactive] = useState(false);
   const [reviewPhrases, setReviewPhrases] = useState<Phrase[]>([]);
   const [reviewSessionLabel, setReviewSessionLabel] = useState('Todas');
+  const [reviewSessionPlanId, setReviewSessionPlanId] = useState<number | undefined>(undefined);
   const [reviewPlans, setReviewPlans] = useState<ReviewPlan[]>([]);
+  const [reportMode, setReportMode] = useState<'weekly' | 'monthly'>('weekly');
+  const [reportReferenceDate, setReportReferenceDate] = useState(getTodayIso);
+  const [phraseReport, setPhraseReport] = useState<PhraseReportData | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportExpanded, setReportExpanded] = useState(false);
+  const [reportSending, setReportSending] = useState(false);
+  const [reportStatusMessage, setReportStatusMessage] = useState<string | null>(null);
+  const [reportErrorMessage, setReportErrorMessage] = useState<string | null>(null);
+  const [topPhrasesExpanded, setTopPhrasesExpanded] = useState(false);
   const [configuringPlan, setConfiguringPlan] = useState<ReviewPlan | null>(null);
   const [deletingPlanId, setDeletingPlanId] = useState<number | null>(null);
   const [planName, setPlanName] = useState('');
@@ -90,6 +171,26 @@ export default function Phrases() {
 
   const categoryFilter = selectedCategory !== 'all' ? selectedCategory : undefined;
   const subcategoryFilter = selectedSubcategory !== 'all' ? selectedSubcategory : undefined;
+
+  const refreshPhraseReport = async (silent = false) => {
+    if (!silent) {
+      setReportLoading(true);
+    }
+
+    try {
+      const report = await phrasesAPI.getReport(reportMode, reportReferenceDate);
+      setPhraseReport(report);
+    } catch (error) {
+      console.error('Error loading phrase report:', error);
+      if (!silent) {
+        setPhraseReport(null);
+      }
+    } finally {
+      if (!silent) {
+        setReportLoading(false);
+      }
+    }
+  };
 
   const fetchPhraseCounts = async () => {
     const [activeRes, inactiveRes] = await Promise.all([
@@ -162,6 +263,38 @@ export default function Phrases() {
       .then(plans => setReviewPlans(plans.map(p => ({ ...p, config: p.config ?? DEFAULT_PLAN_CONFIG }))))
       .catch(error => console.error('Error loading review plans:', error));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPhraseReport = async () => {
+      setReportLoading(true);
+      try {
+        const report = await phrasesAPI.getReport(reportMode, reportReferenceDate);
+        if (!cancelled) {
+          setPhraseReport(report);
+        }
+      } catch (error) {
+        console.error('Error loading phrase report:', error);
+        if (!cancelled) {
+          setPhraseReport(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setReportLoading(false);
+        }
+      }
+    };
+
+    loadPhraseReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [reportMode, reportReferenceDate]);
+
+  useEffect(() => {
+    setTopPhrasesExpanded(false);
+  }, [phraseReport?.period_start, phraseReport?.period_end, reportMode]);
 
   // Lista visible (ya viene filtrada desde backend)
   const filtered = phrases;
@@ -282,18 +415,24 @@ export default function Phrases() {
     return Array.from(byId.values());
   };
 
-  const openReviewSession = (items: Phrase[], label: string) => {
+  const openReviewSession = (items: Phrase[], label: string, planId?: number) => {
     setReviewPhrases(items);
     setReviewSessionLabel(label);
+    setReviewSessionPlanId(planId);
     setShowReviewModal(true);
   };
 
-  const handleReview = (id: string) => {
+  const handleReview = async (id: string) => {
+    const updated = await phrasesAPI.reviewPhrase(id, {
+      review_plan_id: reviewSessionPlanId,
+      session_label: reviewSessionLabel,
+    });
     setPhrases(prev => prev.map(p =>
       p.id === id
-        ? { ...p, reviewCount: p.reviewCount + 1, lastReviewedAt: new Date().toISOString() }
+        ? { ...p, reviewCount: updated.total_repasos || p.reviewCount + 1, lastReviewedAt: updated.ultima_vez || new Date().toISOString() }
         : p
     ));
+    await refreshPhraseReport(true);
   };
 
   const handleReviewAll = async () => {
@@ -339,7 +478,7 @@ export default function Phrases() {
       return;
     }
 
-    openReviewSession(selected, `Planificación: ${plan.name}`);
+    openReviewSession(selected, `Planificación: ${plan.name}`, plan.id);
   };
 
   const handleSavePlanConfig = async (planId: number, config: ReviewPlanConfig) => {
@@ -431,6 +570,31 @@ export default function Phrases() {
     return `${text} (${activeTotal})`;
   };
 
+  const maxDailyReviews = useMemo(() => {
+    if (!phraseReport?.daily_distribution?.length) return 0;
+    return Math.max(...phraseReport.daily_distribution.map(day => day.count), 0);
+  }, [phraseReport]);
+
+  const visibleTopPhrases = useMemo(() => {
+    if (!phraseReport?.top_phrases) return [];
+    return topPhrasesExpanded ? phraseReport.top_phrases : phraseReport.top_phrases.slice(0, 5);
+  }, [phraseReport, topPhrasesExpanded]);
+
+  const handleSendPhraseReportEmail = async () => {
+    try {
+      setReportSending(true);
+      setReportStatusMessage(null);
+      setReportErrorMessage(null);
+      const result = await phrasesAPI.sendReportEmail(reportMode, reportReferenceDate);
+      setReportStatusMessage(`Informe enviado a Gmail: ${result.period}`);
+    } catch (error) {
+      console.error('Error sending phrase report email:', error);
+      setReportErrorMessage('No se pudo enviar el informe de frases a Gmail');
+    } finally {
+      setReportSending(false);
+    }
+  };
+
   const handleCreatePhrase = () => {
     setEditingPhrase(null);
     setShowPhraseModal(true);
@@ -452,6 +616,7 @@ export default function Phrases() {
       await phrasesAPI.updatePhrase(id, { active: nextActive });
       await fetchPhrasesPage(1, true);
       await fetchPhraseCounts();
+      await refreshPhraseReport(true);
     } catch (error) {
       console.error('Error toggling phrase active:', error);
       setPhrases(prev => prev.map(p => p.id === id ? target : p));
@@ -466,6 +631,8 @@ export default function Phrases() {
 
     try {
       await phrasesAPI.deletePhrase(id);
+      await fetchPhraseCounts();
+      await refreshPhraseReport(true);
     } catch (error) {
       console.error('Error deleting phrase:', error);
       setPhrases(prev);
@@ -499,6 +666,7 @@ export default function Phrases() {
         });
         setPhrases(prev => [mapBackendPhrase(created), ...prev]);
         await fetchPhraseCounts();
+        await refreshPhraseReport(true);
       } catch (error) {
         console.error('Error creating phrase:', error);
       }
@@ -570,6 +738,346 @@ export default function Phrases() {
         <MetricCard title="Total repasos" value={filteredTotalReviews} icon={RefreshCw} color="warning" />
         <MetricCard title="Categorías" value={categories.length} icon={Filter} color="primary" />
       </div>
+
+      <Collapsible open={reportExpanded} onOpenChange={setReportExpanded}>
+        <section className="mb-8 rounded-xl border border-border bg-card p-4 md:p-5 space-y-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Informe de frases</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Revisa uso, cobertura, constancia y enfoque del modulo de frases.
+                </p>
+              </div>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:text-foreground hover:bg-accent"
+                      aria-label="Que incluye este modulo"
+                    >
+                      <Info className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-xs leading-relaxed">
+                    Este modulo resume repasos totales, dias con uso, frases mas trabajadas, frases no repasadas,
+                    categorias, distribucion diaria, rachas, planes usados, frases excluidas o ignoradas y cobertura
+                    del sistema.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg border border-border bg-background p-1">
+                <button
+                  onClick={() => setReportMode('weekly')}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    reportMode === 'weekly'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Semanal
+                </button>
+                <button
+                  onClick={() => setReportMode('monthly')}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                    reportMode === 'monthly'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  Mensual
+                </button>
+              </div>
+
+              <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+                <button
+                  onClick={() => setReportReferenceDate(prev => shiftReportReference(prev, reportMode, -1))}
+                  className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label="Periodo anterior"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <div className="min-w-[220px] px-3 text-center text-sm font-medium text-foreground">
+                  {phraseReport?.period_label || 'Cargando periodo'}
+                </div>
+                <button
+                  onClick={() => setReportReferenceDate(prev => shiftReportReference(prev, reportMode, 1))}
+                  className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label="Periodo siguiente"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSendPhraseReportEmail}
+                disabled={reportSending}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {reportSending ? 'Enviando...' : 'Enviar a Gmail'}
+              </button>
+
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  {reportExpanded ? 'Ocultar informe' : 'Ver informe'}
+                  <ChevronDown className={`h-4 w-4 transition-transform ${reportExpanded ? 'rotate-180' : ''}`} />
+                </button>
+              </CollapsibleTrigger>
+            </div>
+          </div>
+
+          {(reportStatusMessage || reportErrorMessage) && (
+            <div className={`rounded-lg px-4 py-3 text-sm ${
+              reportErrorMessage
+                ? 'border border-destructive/30 bg-destructive/10 text-destructive'
+                : 'border border-success/30 bg-success/10 text-success'
+            }`}>
+              {reportErrorMessage || reportStatusMessage}
+            </div>
+          )}
+
+          {!reportExpanded && (
+            <div className="rounded-lg border border-dashed border-border px-4 py-4 text-sm text-muted-foreground">
+              El informe queda oculto al entrar. Abre este bloque cuando quieras revisar el resumen semanal o mensual.
+            </div>
+          )}
+
+          <CollapsibleContent className="space-y-5">
+            {reportLoading ? (
+              <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                Cargando informe de frases...
+              </div>
+            ) : phraseReport ? (
+              <>
+            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+              <MetricCard title="Repasos" value={phraseReport.total_reviews} icon={RefreshCw} color="primary" subtitle="Total del periodo" />
+              <MetricCard title="Dias con repaso" value={phraseReport.days_with_review} icon={CalendarDays} color="success" subtitle={`${phraseReport.period_start} a ${phraseReport.period_end}`} />
+              <MetricCard title="Cobertura" value={`${phraseReport.coverage.percent}%`} icon={Target} color="warning" subtitle={`${phraseReport.coverage.reviewed_active_phrases}/${phraseReport.coverage.active_phrases} activas`} />
+              <MetricCard title="Racha actual" value={phraseReport.streaks.current} icon={Flame} color="destructive" subtitle={`Maxima ${phraseReport.streaks.max} dias`} />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="1. Total de frases repasadas"
+                  help="Muestra cuantas veces repasaste frases dentro del periodo seleccionado."
+                />
+                <p className="mt-2 text-3xl font-heading font-bold text-foreground">{phraseReport.total_reviews}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Total de repasos registrados en el periodo seleccionado.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="2. Dias con repaso"
+                  help="Cuenta en cuantos dias distintos hubo al menos un repaso de frases."
+                />
+                <p className="mt-2 text-3xl font-heading font-bold text-foreground">{phraseReport.days_with_review}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Dias distintos en los que hubo al menos un repaso.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="3. Frases mas repasadas"
+                  help="Lista las frases con mayor cantidad de repasos en el periodo."
+                />
+                <div className="mt-3 space-y-3">
+                  {visibleTopPhrases.length > 0 ? visibleTopPhrases.map((item) => (
+                    <div key={item.id} className="rounded-lg border border-border px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm text-foreground line-clamp-2">{item.text}</p>
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+                          {item.count}x
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {item.author || 'Sin autor'}
+                      </p>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-muted-foreground">No hubo repasos en este periodo.</p>
+                  )}
+                </div>
+                {phraseReport.top_phrases.length > 5 && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setTopPhrasesExpanded(prev => !prev)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                    >
+                      {topPhrasesExpanded ? 'Ver menos' : `Ver mas (${phraseReport.top_phrases.length})`}
+                      <ChevronDown className={`h-4 w-4 transition-transform ${topPhrasesExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="4. Categorias mas trabajadas"
+                  help="Agrupa los repasos por categoria para mostrar en que temas te enfocaste mas."
+                />
+                <div className="mt-3 space-y-2">
+                  {phraseReport.category_usage.length > 0 ? phraseReport.category_usage.map((item) => (
+                    <div key={item.category_name} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                      <span className="text-sm text-foreground">{item.category_name || 'Sin categoria'}</span>
+                      <span className="text-sm font-semibold text-primary">{item.count}</span>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-muted-foreground">Sin uso de categorias en este periodo.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="5. Distribucion por dia"
+                  help="Desglosa cuantos repasos hubo en cada dia del rango semanal o mensual."
+                />
+                <div className="mt-3 space-y-2">
+                  {phraseReport.daily_distribution.map((day) => {
+                    const width = maxDailyReviews > 0 ? `${Math.max((day.count / maxDailyReviews) * 100, day.count > 0 ? 8 : 0)}%` : '0%';
+                    return (
+                      <div key={day.date} className="space-y-1">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-muted-foreground">{formatReportDate(day.date)}</span>
+                          <span className="font-medium text-foreground">{day.count}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div className="h-2 rounded-full bg-primary transition-all" style={{ width }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="6. Racha de repaso"
+                  help="Resume tu racha actual y la racha maxima historica o disponible en los registros."
+                />
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-border px-3 py-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Actual</p>
+                    <p className="mt-1 text-2xl font-heading font-bold text-foreground">{phraseReport.streaks.current}</p>
+                    <p className="text-xs text-muted-foreground">dias consecutivos</p>
+                  </div>
+                  <div className="rounded-lg border border-border px-3 py-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Maxima</p>
+                    <p className="mt-1 text-2xl font-heading font-bold text-foreground">{phraseReport.streaks.max}</p>
+                    <p className="text-xs text-muted-foreground">dias consecutivos</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="7. Planes de repaso usados"
+                  help="Cuenta cuantos repasos se hicieron por cada plan o modo de repaso utilizado."
+                />
+                <div className="mt-3 space-y-2">
+                  {phraseReport.plans_used.length > 0 ? phraseReport.plans_used.map((item) => (
+                    <div key={item.name} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                      <span className="text-sm text-foreground">{item.name || 'Sin plan'}</span>
+                      <span className="text-sm font-semibold text-primary">{item.count}</span>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-muted-foreground">No hubo sesiones de repaso registradas.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="hidden rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="9. Frases excluidas o ignoradas"
+                  help="Separa frases excluidas por configuracion y frases activas que llevan mucho tiempo sin repaso."
+                />
+                <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Excluidas</p>
+                    <div className="mt-2 space-y-2">
+                      {phraseReport.excluded_phrases.length > 0 ? phraseReport.excluded_phrases.slice(0, 6).map((item) => (
+                        <div key={`excluded-${item.id}`} className="rounded-lg border border-border px-3 py-2">
+                          <p className="text-sm text-foreground line-clamp-2">{item.text}</p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted-foreground">No hay frases excluidas.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Ignoradas</p>
+                    <div className="mt-2 space-y-2">
+                      {phraseReport.ignored_phrases.length > 0 ? phraseReport.ignored_phrases.slice(0, 6).map((item) => (
+                        <div key={`ignored-${item.id}`} className="rounded-lg border border-border px-3 py-2">
+                          <p className="text-sm text-foreground line-clamp-2">{item.text}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Ultimo repaso: {formatReportDate(item.last_reviewed_at)}{typeof item.days_since_last_review === 'number' ? ` · ${item.days_since_last_review} dias` : ''}
+                          </p>
+                        </div>
+                      )) : (
+                        <p className="text-sm text-muted-foreground">No hay frases activas abandonadas en este corte.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/70 p-4">
+                <ReportSectionTitle
+                  title="8. Cobertura del sistema"
+                  help="Indica que porcentaje de las frases activas fue repasado al menos una vez en el periodo."
+                />
+                <div className="mt-3 rounded-lg border border-border px-4 py-4">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-3xl font-heading font-bold text-foreground">{phraseReport.coverage.percent}%</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {phraseReport.coverage.reviewed_active_phrases} de {phraseReport.coverage.active_phrases} frases activas fueron repasadas.
+                      </p>
+                    </div>
+                    <BarChart3 className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="mt-3 h-3 rounded-full bg-muted">
+                    <div
+                      className="h-3 rounded-full bg-primary transition-all"
+                      style={{ width: `${Math.min(phraseReport.coverage.percent, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+              </>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                No se pudo cargar el informe de frases.
+              </div>
+            )}
+          </CollapsibleContent>
+        </section>
+      </Collapsible>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-6">

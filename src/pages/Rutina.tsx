@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   ChevronLeft, ChevronRight, Plus, Sun, Sunset, Moon,
-  CheckCircle2, Circle, X, Pencil, Trash2, BookOpen,
+  CheckCircle2, Circle, X, Pencil, Trash2, BookOpen, SkipForward,
 } from 'lucide-react';
-import { rutinasAPI } from '@/services/api';
+import { goalsAPI, rutinasAPI } from '@/services/api';
 import type { Rutina, RutinaAsignacion, DiaSemana } from '@/services/api';
 import RutinaModal from '@/components/rutina/RutinaModal';
 import {
@@ -93,6 +93,7 @@ export default function RutinaPage() {
   const [historialMonth, setHistorialMonth] = useState<Date>(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [historialData, setHistorialData] = useState<RutinaAsignacion[]>([]);
   const [historialLoading, setHistorialLoading] = useState(false);
+  const [skippedGoalsByDate, setSkippedGoalsByDate] = useState<Record<string, Set<string>>>({});
 
   // Modal crear/editar rutina
   const [showRutinaModal, setShowRutinaModal] = useState(false);
@@ -109,6 +110,30 @@ export default function RutinaPage() {
   const [deletingRutinaId, setDeletingRutinaId] = useState<number | null>(null);
 
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const loadSkippedGoalsForDates = useCallback(async (dates: string[]) => {
+    const uniqueDates = [...new Set(dates)];
+    if (uniqueDates.length === 0) return;
+
+    try {
+      const results = await Promise.all(
+        uniqueDates.map(async (date) => ({
+          date,
+          ids: await goalsAPI.getSkippedGoals(date),
+        }))
+      );
+
+      setSkippedGoalsByDate(prev => {
+        const next = { ...prev };
+        results.forEach(({ date, ids }) => {
+          next[date] = new Set(ids.map(id => id.toString()));
+        });
+        return next;
+      });
+    } catch (error) {
+      console.error('Error loading skipped goals for rutina view:', error);
+    }
+  }, []);
 
   // ── Fetch data ──────────────────────────────────────────────────────────────
 
@@ -142,6 +167,10 @@ export default function RutinaPage() {
   }, [weekStart]);
 
   useEffect(() => {
+    loadSkippedGoalsForDates(weekDates.map(toISODate));
+  }, [weekStart, loadSkippedGoalsForDates]);
+
+  useEffect(() => {
     if (activeView !== 'historial') return;
     const y = historialMonth.getFullYear();
     const m = historialMonth.getMonth();
@@ -152,7 +181,10 @@ export default function RutinaPage() {
       .then(setHistorialData)
       .catch(console.error)
       .finally(() => setHistorialLoading(false));
-  }, [activeView, historialMonth]);
+
+    const datesInMonth = buildMonthCalendar(historialMonth).map(toISODate);
+    loadSkippedGoalsForDates(datesInMonth);
+  }, [activeView, historialMonth, loadSkippedGoalsForDates]);
 
   // ── Helpers de estado local ─────────────────────────────────────────────────
 
@@ -180,6 +212,9 @@ export default function RutinaPage() {
         : dia.asignaciones,
     })));
   };
+
+  const isGoalSkippedOnDate = (goalId: number, fecha: string) =>
+    skippedGoalsByDate[fecha]?.has(goalId.toString()) ?? false;
 
   // ── Handlers ────────────────────────────────────────────────────────────────
 
@@ -362,6 +397,9 @@ export default function RutinaPage() {
               const iso = toISODate(date);
               const asignacion = getAsignacion(iso, parte);
               const today = isToday(iso);
+              const skippedCount = asignacion
+                ? (asignacion.rutina.objetivos ?? []).filter(g => isGoalSkippedOnDate(g.id, iso)).length
+                : 0;
 
               return (
                 <div
@@ -388,6 +426,7 @@ export default function RutinaPage() {
                         {(asignacion.rutina.objetivos ?? []).length > 0 && (
                           <p className="text-[10px] text-muted-foreground mt-1 pl-4">
                             {asignacion.rutina.objetivos.length} objetivo{asignacion.rutina.objetivos.length !== 1 ? 's' : ''}
+                            {skippedCount > 0 && ` · ${skippedCount} saltado${skippedCount !== 1 ? 's' : ''}`}
                           </p>
                         )}
                       </div>
@@ -419,7 +458,13 @@ export default function RutinaPage() {
                           {asignacion.rutina.objetivos.map(g => (
                             <div key={g.id} className="flex items-center gap-1.5">
                               <span className="text-[10px] flex-shrink-0">{g.icono || '🎯'}</span>
-                              <p className="text-[10px] text-foreground truncate">{g.titulo}</p>
+                              <p className="text-[10px] text-foreground truncate flex-1">{g.titulo}</p>
+                              {isGoalSkippedOnDate(g.id, iso) && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600">
+                                  <SkipForward className="h-2.5 w-2.5" />
+                                  Saltado
+                                </span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -542,6 +587,9 @@ export default function RutinaPage() {
                                 >
                                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${COLOR_BG[a.rutina.color || 'blue']}`} />
                                   <p className="text-[9px] truncate text-foreground leading-tight flex-1">{a.rutina.nombre}</p>
+                                  {(a.rutina.objetivos ?? []).some(g => isGoalSkippedOnDate(g.id, iso)) && (
+                                    <SkipForward className="h-2.5 w-2.5 text-amber-500 flex-shrink-0" />
+                                  )}
                                   {a.completada && <CheckCircle2 className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />}
                                 </div>
                               ))}

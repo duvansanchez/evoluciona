@@ -45,6 +45,8 @@ export default function QuestionsAdmin() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [sendingPartial, setSendingPartial] = useState(false);
   const [sendingPrevious, setSendingPrevious] = useState(false);
+  const [sendingCurrentMonth, setSendingCurrentMonth] = useState(false);
+  const [sendingPreviousMonth, setSendingPreviousMonth] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleSuccess, setScheduleSuccess] = useState<string | null>(null);
   const [nextRunTime, setNextRunTime] = useState<string | null>(null);
@@ -198,6 +200,40 @@ export default function QuestionsAdmin() {
     }
   };
 
+  const handleSendCurrentMonth = async () => {
+    try {
+      setSendingCurrentMonth(true);
+      setScheduleError(null);
+      setScheduleSuccess(null);
+      const result = await reportsAPI.sendCurrentMonthReport();
+      const history = await reportsAPI.getHistory(5);
+      setReportHistory(Array.isArray(history.items) ? history.items : []);
+      setScheduleSuccess(`Informe mensual parcial enviado: ${result.week}`);
+    } catch (error) {
+      console.error('Error sending current month report:', error);
+      setScheduleError('No se pudo enviar el informe parcial del mes');
+    } finally {
+      setSendingCurrentMonth(false);
+    }
+  };
+
+  const handleSendPreviousMonth = async () => {
+    try {
+      setSendingPreviousMonth(true);
+      setScheduleError(null);
+      setScheduleSuccess(null);
+      const result = await reportsAPI.sendPreviousMonthReport();
+      const history = await reportsAPI.getHistory(5);
+      setReportHistory(Array.isArray(history.items) ? history.items : []);
+      setScheduleSuccess(`Informe mensual enviado: ${result.week}`);
+    } catch (error) {
+      console.error('Error sending previous month report:', error);
+      setScheduleError('No se pudo enviar el informe mensual del mes anterior');
+    } finally {
+      setSendingPreviousMonth(false);
+    }
+  };
+
   const filteredQuestions = questions
     .filter(q => {
       const matchesSearch = q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -300,6 +336,8 @@ export default function QuestionsAdmin() {
   const getReportTypeLabel = (type: string) => {
     if (type === 'weekly_partial_current') return 'Parcial semana actual';
     if (type === 'weekly_previous') return 'Semana anterior';
+    if (type === 'monthly_partial_current') return 'Parcial mes actual';
+    if (type === 'monthly_previous') return 'Mes anterior';
     return type;
   };
 
@@ -369,7 +407,7 @@ export default function QuestionsAdmin() {
         <div className="bg-card rounded-xl p-4 border border-border shadow-sm space-y-4">
           <div className="flex items-center gap-2">
             <Clock3 className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">Informe semanal por correo</h2>
+            <h2 className="text-lg font-semibold text-foreground">Informes por correo</h2>
           </div>
 
           {scheduleLoading ? (
@@ -442,6 +480,32 @@ export default function QuestionsAdmin() {
                   >
                     <Send className="h-4 w-4" />
                     {sendingPartial ? 'Enviando...' : 'Enviar acumulado de esta semana'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-3 border-t border-border/60">
+                <p className="text-xs text-muted-foreground">
+                  Envíos manuales mensuales para compartir el progreso acumulado del mes.
+                </p>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={handleSendPreviousMonth}
+                    disabled={sendingPreviousMonth}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-input bg-background hover:bg-muted text-foreground disabled:opacity-60"
+                  >
+                    <Send className="h-4 w-4" />
+                    {sendingPreviousMonth ? 'Enviando...' : 'Enviar mes anterior ahora'}
+                  </button>
+
+                  <button
+                    onClick={handleSendCurrentMonth}
+                    disabled={sendingCurrentMonth}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-input bg-background hover:bg-muted text-foreground disabled:opacity-60"
+                  >
+                    <Send className="h-4 w-4" />
+                    {sendingCurrentMonth ? 'Enviando...' : 'Enviar acumulado de este mes'}
                   </button>
                 </div>
               </div>

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { CalendarDays, CheckSquare, ChevronDown, Edit2, GripVertical, Info, ListChecks, Plus, PlusCircle, Trash2, X } from 'lucide-react';
+import { CalendarDays, CheckSquare, ChevronDown, Edit2, FolderOpen, GripVertical, Info, ListChecks, Plus, PlusCircle, Settings2, Trash2, X } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
-import type { Goal, GoalCategory, GoalPriority, DayPart, SubGoal } from '@/types';
+import type { Goal, GoalCategory, GoalFolder, GoalPriority, DayPart, SubGoal } from '@/types';
+import GoalFoldersModal from './GoalFoldersModal';
 
 interface GoalFormData {
   title: string;
@@ -50,6 +51,8 @@ interface GoalModalProps {
   onOpenChange: (open: boolean) => void;
   goal?: Goal | null;
   goals: Goal[];
+  folders: GoalFolder[];
+  onFoldersChange: (folders: GoalFolder[]) => void;
   onSave: (data: GoalFormData) => void;
 }
 
@@ -59,7 +62,7 @@ const priorityDot: Record<string, string> = {
   low: 'bg-priority-low',
 };
 
-export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: GoalModalProps) {
+export default function GoalModal({ open, onOpenChange, goal, goals, folders, onFoldersChange, onSave }: GoalModalProps) {
   const isEditing = !!goal;
   const [form, setForm] = useState<GoalFormData>(defaultForm);
   const [newSubGoalTitle, setNewSubGoalTitle] = useState('');
@@ -67,6 +70,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
   const [showDatesSection, setShowDatesSection] = useState(false);
   const [showDurationSection, setShowDurationSection] = useState(false);
   const [showRelationsSection, setShowRelationsSection] = useState(false);
+  const [showFoldersModal, setShowFoldersModal] = useState(false);
 
   useEffect(() => {
     if (goal) {
@@ -383,6 +387,15 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
             isOpen={showChecklist}
             onToggle={() => setShowChecklist(!showChecklist)}
             badge={form.subGoals.length > 0 ? form.subGoals.length : undefined}
+            headerAction={
+              <button
+                onClick={e => { e.stopPropagation(); setShowFoldersModal(true); }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-muted/60"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Carpetas {folders.length > 0 && <span className="font-semibold text-primary">({folders.length})</span>}
+              </button>
+            }
           >
             <div className="space-y-4">
               {form.subGoals.length > 0 && (
@@ -438,6 +451,19 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
                                   className={`flex-1 bg-transparent text-sm outline-none ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}
                                   maxLength={200}
                                 />
+                                {/* Folder selector */}
+                                {folders.length > 0 && (
+                                  <select
+                                    value={sub.folderId ?? ''}
+                                    onChange={e => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, folderId: e.target.value ? Number(e.target.value) : undefined } : s))}
+                                    className="text-xs bg-muted rounded-lg px-1.5 py-0.5 border-0 outline-none text-muted-foreground max-w-[90px] truncate"
+                                  >
+                                    <option value="">Sin carpeta</option>
+                                    {folders.map(f => (
+                                      <option key={f.id} value={f.id}>{f.icono || '📁'} {f.nombre}</option>
+                                    ))}
+                                  </select>
+                                )}
                                 {/* Priority dots */}
                                 <div className="flex items-center gap-1.5">
                                   {(['low', 'medium', 'high'] as GoalPriority[]).map(p => (
@@ -511,36 +537,46 @@ export default function GoalModal({ open, onOpenChange, goal, goals, onSave }: G
             {isEditing ? '✓ Guardar Cambios' : '✓ Crear Objetivo'}
           </button>
         </div>
+      <GoalFoldersModal
+        open={showFoldersModal}
+        onOpenChange={setShowFoldersModal}
+        folders={folders}
+        onFoldersChange={onFoldersChange}
+      />
       </DialogContent>
     </Dialog>
   );
 }
 
-function CollapsibleSection({ title, icon, isOpen, onToggle, badge, children }: { 
-  title: string; 
-  icon: string; 
-  isOpen: boolean; 
-  onToggle: () => void; 
+function CollapsibleSection({ title, icon, isOpen, onToggle, badge, headerAction, children }: {
+  title: string;
+  icon: string;
+  isOpen: boolean;
+  onToggle: () => void;
   badge?: number;
-  children: React.ReactNode 
+  headerAction?: React.ReactNode;
+  children: React.ReactNode
 }) {
   return (
     <div className="border border-input rounded-xl overflow-hidden bg-background">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-base">{icon}</span>
-          <span className="text-sm font-semibold text-foreground">{title}</span>
-          {badge !== undefined && badge > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-              {badge}
-            </span>
-          )}
-        </div>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
+      <div className="flex items-center">
+        <button
+          onClick={onToggle}
+          className="flex-1 flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-base">{icon}</span>
+            <span className="text-sm font-semibold text-foreground">{title}</span>
+            {badge !== undefined && badge > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                {badge}
+              </span>
+            )}
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {headerAction && <div className="pr-3">{headerAction}</div>}
+      </div>
       {isOpen && (
         <div className="px-4 pb-4 pt-4 animate-fade-in">
           {children}

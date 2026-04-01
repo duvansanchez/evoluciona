@@ -3,7 +3,7 @@ Servicios para objetivos (Goals).
 """
 
 from sqlalchemy.orm import Session
-from app.models.models import Goal
+from app.models.models import Goal, GoalSkipDay
 from app.schemas.schemas import GoalCreate, GoalUpdate
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -52,6 +52,7 @@ class GoalService:
         category: Optional[str] = None,
         completed: Optional[bool] = None,
         scheduled_for: Optional[str] = None,
+        skip_date: Optional[str] = None,
         page: int = 1,
         page_size: int = 10
     ) -> Tuple[List[Goal], int]:
@@ -68,6 +69,14 @@ class GoalService:
         total = query.count()
         # SQL Server requiere ORDER BY cuando usas OFFSET/LIMIT
         goals = query.order_by(Goal.fecha_creacion.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+        if skip_date:
+            skipped_goal_ids = {
+                row.objetivo_id
+                for row in db.query(GoalSkipDay.objetivo_id).filter(GoalSkipDay.fecha == skip_date).all()
+            }
+            for goal in goals:
+                setattr(goal, "saltado_hoy", goal.id in skipped_goal_ids)
         
         return goals, total
     
@@ -127,4 +136,50 @@ class GoalService:
         db.commit()
         db.refresh(db_goal)
         return db_goal
+
+    @staticmethod
+    def get_skipped_goal_ids(db: Session, fecha: str) -> List[int]:
+        """Obtener IDs de objetivos saltados para una fecha."""
+        return [
+            row.objetivo_id
+            for row in db.query(GoalSkipDay.objetivo_id).filter(GoalSkipDay.fecha == fecha).all()
+        ]
+
+    @staticmethod
+    def skip_goal_for_date(db: Session, goal_id: int, fecha: str) -> Optional[GoalSkipDay]:
+        """Persistir que un objetivo recurrente fue saltado en una fecha."""
+        goal = db.query(Goal).filter(Goal.id == goal_id).first()
+        if not goal or not goal.recurrente:
+            return None
+
+        existing = db.query(GoalSkipDay).filter(
+            GoalSkipDay.objetivo_id == goal_id,
+            GoalSkipDay.fecha == fecha,
+        ).first()
+        if existing:
+            return existing
+
+        skip_day = GoalSkipDay(
+            objetivo_id=goal_id,
+            fecha=fecha,
+            fecha_creacion=datetime.now(),
+        )
+        db.add(skip_day)
+        db.commit()
+        db.refresh(skip_day)
+        return skip_day
+
+    @staticmethod
+    def unskip_goal_for_date(db: Session, goal_id: int, fecha: str) -> bool:
+        """Eliminar el salto diario de un objetivo."""
+        existing = db.query(GoalSkipDay).filter(
+            GoalSkipDay.objetivo_id == goal_id,
+            GoalSkipDay.fecha == fecha,
+        ).first()
+        if not existing:
+            return False
+
+        db.delete(existing)
+        db.commit()
+        return True
 

@@ -21,3 +21,4 @@ class SubGoal(Base):
     orden = Column(Integer, nullable=False, default=0)
     tiempo_focus = Column(Integer, nullable=True, default=0)  # Tiempo en segundos
     notas = Column(Text, nullable=True)
+    folder_id = Column(Integer, ForeignKey("carpetas_subobjetivos.id", ondelete="SET NULL"), nullable=True)

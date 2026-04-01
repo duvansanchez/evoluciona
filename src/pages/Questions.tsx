@@ -42,8 +42,10 @@ export default function Questions() {
   const [loading, setLoading] = useState(true);
   const [dailySession, setDailySession] = useState<{ answered_questions: number; total_questions: number } | null>(null);
   const [yesterdaySession, setYesterdaySession] = useState<{ answered_questions: number; total_questions: number } | null>(null);
+  const [todaySkippedCount, setTodaySkippedCount] = useState(0);
+  const [yesterdaySkippedCount, setYesterdaySkippedCount] = useState(0);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
-  const [calendarDays, setCalendarDays] = useState<{ date: string; has_responses: boolean; response_count: number }[]>([]);
+  const [calendarDays, setCalendarDays] = useState<{ date: string; has_responses: boolean; response_count: number; answered_count?: number; skipped_count?: number; status?: 'none' | 'answered' | 'skipped' | 'mixed' }[]>([]);
 
   // Cargar preguntas del backend
   useEffect(() => {
@@ -60,10 +62,14 @@ export default function Questions() {
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
         const yesterdayKey = getLocalDateString(yesterdayDate);
 
-        const [session, ySession] = await Promise.all([
+        const [session, ySession, todaySkips, yesterdaySkips] = await Promise.all([
           questionsAPI.getDailySession(todayKey),
           questionsAPI.getDailySession(yesterdayKey).catch(() => null),
+          questionsAPI.getSkippedQuestions(todayKey).catch(() => []),
+          questionsAPI.getSkippedQuestions(yesterdayKey).catch(() => []),
         ]);
+        setTodaySkippedCount(todaySkips.length);
+        setYesterdaySkippedCount(yesterdaySkips.length);
         // Use responses.length as source of truth (answered_questions in DB can be stale)
         setDailySession(session ? {
           answered_questions: session.responses?.length ?? session.answered_questions ?? 0,
@@ -95,10 +101,11 @@ export default function Questions() {
   const yesterdayKey = getLocalDateString(yesterdayDate);
   const activeQuestions = questions.filter(q => q.active);
   const yesterdayAnswered = yesterdaySession?.answered_questions ?? 0;
+  const yesterdayCovered = yesterdayAnswered + yesterdaySkippedCount;
   const yesterdayTotal = yesterdaySession?.total_questions ?? activeQuestions.length;
-  const yesterdayComplete = yesterdayAnswered > 0 && yesterdayAnswered >= yesterdayTotal && yesterdayTotal > 0;
+  const yesterdayComplete = yesterdayCovered > 0 && yesterdayCovered >= yesterdayTotal && yesterdayTotal > 0;
   
-  const answeredCount = dailySession?.answered_questions ?? 0;
+  const answeredCount = (dailySession?.answered_questions ?? 0) + todaySkippedCount;
   const totalCount = dailySession?.total_questions ?? activeQuestions.length;
   const progress = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
   const isComplete = answeredCount === totalCount && totalCount > 0;
@@ -125,7 +132,7 @@ export default function Questions() {
             <div>
               <h2 className="text-lg font-semibold text-foreground mb-1">Progreso de Hoy</h2>
               <p className="text-sm text-muted-foreground">
-                {isComplete ? '¡Completado!' : `${answeredCount} de ${totalCount} respondidas`}
+                {isComplete ? '¡Completado!' : `${answeredCount} de ${totalCount} cubiertas`}
               </p>
             </div>
             {isComplete ? (
@@ -228,7 +235,7 @@ export default function Questions() {
                 </div>
                 {yesterdayAnswered > 0 ? (
                   <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
-                    {yesterdayAnswered}/{yesterdayTotal} respondidas
+                    {yesterdayCovered}/{yesterdayTotal} cubiertas
                   </span>
                 ) : (
                   <span className="px-2 py-1 rounded-full bg-muted text-muted-foreground text-xs font-semibold">
@@ -347,7 +354,7 @@ function CalendarGrid({
   today,
   onDayClick,
 }: {
-  days: { date: string; has_responses: boolean; response_count: number }[];
+  days: { date: string; has_responses: boolean; response_count: number; answered_count?: number; skipped_count?: number; status?: 'none' | 'answered' | 'skipped' | 'mixed' }[];
   month: Date;
   today: string;
   onDayClick: (date: string) => void;
@@ -372,26 +379,44 @@ function CalendarGrid({
         const info = dayMap.get(date);
         const isToday = date === today;
         const hasDot = info?.has_responses ?? false;
+        const status = info?.status ?? 'none';
         const dayNum = new Date(date + 'T12:00:00').getDate();
         const isFuture = date > today;
+        const dotClass = status === 'skipped'
+          ? 'bg-amber-500'
+          : status === 'mixed'
+            ? 'bg-sky-500'
+            : 'bg-green-500';
+        const hoverClass = status === 'skipped'
+          ? 'hover:bg-amber-100'
+          : status === 'mixed'
+            ? 'hover:bg-sky-100'
+            : 'hover:bg-green-100';
+        const title = !hasDot
+          ? 'Sin respuestas'
+          : status === 'skipped'
+            ? `${info?.skipped_count ?? 0} preguntas saltadas`
+            : status === 'mixed'
+              ? `${info?.answered_count ?? 0} respuestas y ${info?.skipped_count ?? 0} preguntas saltadas`
+              : `${info?.answered_count ?? info?.response_count ?? 0} respuestas`;
 
         return (
           <button
             key={date}
             onClick={() => !isFuture && hasDot && onDayClick(date)}
             disabled={isFuture || !hasDot}
-            title={hasDot ? `${info!.response_count} respuestas` : 'Sin respuestas'}
+            title={title}
             className={`
               relative flex flex-col items-center justify-center rounded-lg py-1.5 text-sm font-medium transition-all
               ${isToday ? 'ring-2 ring-primary ring-offset-1' : ''}
               ${isFuture ? 'text-muted-foreground/30 cursor-default' :
-                hasDot ? 'text-foreground hover:bg-green-100 cursor-pointer' :
+                hasDot ? `text-foreground ${hoverClass} cursor-pointer` :
                 'text-muted-foreground cursor-default'}
             `}
           >
             <span>{dayNum}</span>
             {hasDot && (
-              <span className="absolute bottom-0.5 w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className={`absolute bottom-0.5 w-1.5 h-1.5 rounded-full ${dotClass}`} />
             )}
           </button>
         );

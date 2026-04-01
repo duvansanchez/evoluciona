@@ -9,7 +9,8 @@ from app.db.database import get_db
 from app.schemas.schemas import (
     QuestionCreate, QuestionUpdate, QuestionResponse,
     DailySessionCreate, DailySessionResponse,
-    QuestionsPaginatedResponse, SingleResponseCreate
+    QuestionsPaginatedResponse, SingleResponseCreate,
+    QuestionFeedbackCreate, QuestionFeedbackResponse, QuestionSkipDayResponse
 )
 from app.services.question_service import QuestionService, DailySessionService
 from typing import List
@@ -129,7 +130,7 @@ def get_calendar_summary(
     first_day = date_type(year, month, 1)
     last_day = date_type(year, month, cal_module.monthrange(year, month)[1])
 
-    rows = db.execute(
+    response_rows = db.execute(
         text("""
             SELECT CAST(date AS DATE) as dia, COUNT(DISTINCT question_id) as total
             FROM response
@@ -139,16 +140,46 @@ def get_calendar_summary(
         {"start": first_day.isoformat(), "end": last_day.isoformat()}
     ).fetchall()
 
-    counts = {str(row[0]): row[1] for row in rows}
+    skip_rows = db.execute(
+        text("""
+            SELECT fecha as dia, COUNT(DISTINCT question_id) as total
+            FROM question_skip_days
+            WHERE fecha >= :start AND fecha <= :end
+            GROUP BY fecha
+        """),
+        {"start": first_day.isoformat(), "end": last_day.isoformat()}
+    ).fetchall()
+
+    response_counts = {str(row[0]): row[1] for row in response_rows}
+    skip_counts = {str(row[0]): row[1] for row in skip_rows}
+    counts: dict[str, int] = {}
+    for row in response_rows:
+        counts[str(row[0])] = counts.get(str(row[0]), 0) + row[1]
+    for row in skip_rows:
+        counts[str(row[0])] = counts.get(str(row[0]), 0) + row[1]
 
     days = []
     cursor = first_day
     while cursor <= last_day:
         d = cursor.isoformat()
+        response_count = response_counts.get(d, 0)
+        skip_count = skip_counts.get(d, 0)
+
+        status = "none"
+        if response_count > 0 and skip_count > 0:
+            status = "mixed"
+        elif response_count > 0:
+            status = "answered"
+        elif skip_count > 0:
+            status = "skipped"
+
         days.append({
             "date": d,
             "has_responses": d in counts,
             "response_count": counts.get(d, 0),
+            "answered_count": response_count,
+            "skipped_count": skip_count,
+            "status": status,
         })
         cursor += timedelta(days=1)
 
@@ -175,6 +206,20 @@ def get_history_session(date: str, db: Session = Depends(get_db)):
         {"d": date}
     ).fetchall()
 
+    skip_rows = db.execute(
+        text("""
+            SELECT s.id, s.question_id, s.fecha,
+                   q.text as question_text, q.type as question_type,
+                   q.options as question_options, q.active as question_active,
+                   q.categoria as question_category
+            FROM question_skip_days s
+            LEFT JOIN question q ON q.id = s.question_id
+            WHERE s.fecha = :d
+            ORDER BY s.id DESC
+        """),
+        {"d": date}
+    ).fetchall()
+
     # Deduplicate by question_id (keep latest)
     seen: set = set()
     entries = []
@@ -192,6 +237,24 @@ def get_history_session(date: str, db: Session = Depends(get_db)):
                 "question_options": row[6],
                 "question_active": bool(row[7]) if row[7] is not None else True,
                 "question_category": row[8] or "",
+                "skipped": False,
+            })
+
+    for row in skip_rows:
+        qid = row[1]
+        if qid not in seen:
+            seen.add(qid)
+            entries.append({
+                "id": f"skip-{row[0]}",
+                "question_id": str(row[1]),
+                "response": "",
+                "answered_at": row[2] or "",
+                "question_text": row[3] or "",
+                "question_type": row[4] or "text",
+                "question_options": row[5],
+                "question_active": bool(row[6]) if row[6] is not None else True,
+                "question_category": row[7] or "",
+                "skipped": True,
             })
 
     return {"date": date, "entries": entries}
@@ -232,3 +295,59 @@ def save_single_response(date: str, question_id: str, data: SingleResponseCreate
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/daily-sessions/{date}/feedbacks", response_model=List[QuestionFeedbackResponse])
+def get_question_feedbacks(date: str, db: Session = Depends(get_db)):
+    """Obtiene los feedbacks guardados para las preguntas de un día."""
+    return DailySessionService.get_feedbacks_for_date(db, date)
+
+
+@router.post("/daily-sessions/{date}/feedbacks/{question_id}", response_model=QuestionFeedbackResponse)
+def save_question_feedback(
+    date: str,
+    question_id: str,
+    data: QuestionFeedbackCreate,
+    db: Session = Depends(get_db)
+):
+    """Crea o actualiza feedback libre de una pregunta para una fecha."""
+    try:
+        return DailySessionService.save_question_feedback(db, date, question_id, data.text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/daily-sessions/{date}/feedbacks/{question_id}")
+def delete_question_feedback(date: str, question_id: str, db: Session = Depends(get_db)):
+    """Elimina feedback libre de una pregunta para una fecha."""
+    try:
+        DailySessionService.delete_question_feedback(db, date, question_id)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/daily-sessions/{date}/skips", response_model=List[int])
+def get_skipped_questions(date: str, db: Session = Depends(get_db)):
+    """Obtiene IDs de preguntas saltadas para un día."""
+    return DailySessionService.get_skipped_question_ids(db, date)
+
+
+@router.post("/daily-sessions/{date}/skips/{question_id}", response_model=QuestionSkipDayResponse, status_code=201)
+def skip_question_for_date(date: str, question_id: int, db: Session = Depends(get_db)):
+    """Marcar una pregunta como saltada para una fecha."""
+    skipped = DailySessionService.skip_question_for_date(db, question_id, date)
+    if not skipped:
+        raise HTTPException(status_code=404, detail="Active question not found")
+    return QuestionSkipDayResponse(question_id=str(skipped.question_id), date=skipped.fecha)
+
+
+@router.delete("/daily-sessions/{date}/skips/{question_id}")
+def unskip_question_for_date(date: str, question_id: int, db: Session = Depends(get_db)):
+    """Quitar el estado de saltada de una pregunta para una fecha."""
+    removed = DailySessionService.unskip_question_for_date(db, question_id, date)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skipped question entry not found")
+    return {"ok": True}

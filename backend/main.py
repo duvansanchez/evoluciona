@@ -32,6 +32,7 @@ try:
 
     # Importar modelos para que se registren en Base.metadata antes de create_all
     import app.models.models  # noqa: F401
+    import app.models.subgoal  # noqa: F401
     from app.db.database import init_db, get_engine
     init_db()
     print("✅ Tablas de BD verificadas/creadas", flush=True)
@@ -53,6 +54,66 @@ try:
                     WHERE object_id = OBJECT_ID(N'rutina_asignaciones') AND name = N'objetivo_ids'
                 )
                 ALTER TABLE rutina_asignaciones ADD objetivo_ids NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'folder_id'
+                )
+                ALTER TABLE subobjetivos ADD folder_id INT NULL
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'objetivo_saltado_dias', N'U') IS NULL
+                CREATE TABLE objetivo_saltado_dias (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    objetivo_id INT NOT NULL,
+                    fecha NVARCHAR(10) NOT NULL,
+                    fecha_creacion DATETIME NULL,
+                    CONSTRAINT uq_objetivo_saltado_dia UNIQUE (objetivo_id, fecha),
+                    CONSTRAINT fk_objetivo_saltado_dias_objetivo
+                        FOREIGN KEY (objetivo_id) REFERENCES objetivos(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'question_feedback', N'U') IS NULL
+                CREATE TABLE question_feedback (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    question_id INT NOT NULL,
+                    fecha NVARCHAR(10) NOT NULL,
+                    texto NVARCHAR(MAX) NOT NULL,
+                    fecha_creacion DATETIME NULL,
+                    fecha_actualizacion DATETIME NULL,
+                    CONSTRAINT uq_question_feedback_question_date UNIQUE (question_id, fecha),
+                    CONSTRAINT fk_question_feedback_question
+                        FOREIGN KEY (question_id) REFERENCES question(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'question_skip_days', N'U') IS NULL
+                CREATE TABLE question_skip_days (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    question_id INT NOT NULL,
+                    fecha NVARCHAR(10) NOT NULL,
+                    fecha_creacion DATETIME NULL,
+                    CONSTRAINT uq_question_skip_day_question_date UNIQUE (question_id, fecha),
+                    CONSTRAINT fk_question_skip_day_question
+                        FOREIGN KEY (question_id) REFERENCES question(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'frase_repaso_logs', N'U') IS NULL
+                CREATE TABLE frase_repaso_logs (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    phrase_id INT NOT NULL,
+                    review_plan_id INT NULL,
+                    session_label NVARCHAR(255) NULL,
+                    reviewed_at DATETIME NOT NULL,
+                    review_date NVARCHAR(10) NOT NULL,
+                    CONSTRAINT fk_frase_repaso_logs_phrase
+                        FOREIGN KEY (phrase_id) REFERENCES frases(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_frase_repaso_logs_plan
+                        FOREIGN KEY (review_plan_id) REFERENCES review_plans(id) ON DELETE SET NULL
+                )
             """))
             conn.commit()
         print("✅ Migraciones verificadas", flush=True)

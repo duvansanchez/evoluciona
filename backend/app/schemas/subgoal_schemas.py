@@ -14,6 +14,7 @@ class SubGoalBase(BaseModel):
     orden: Optional[int] = None
     tiempo_focus: Optional[int] = 0
     notas: Optional[str] = None
+    folder_id: Optional[int] = None
 
 
 class SubGoalCreate(SubGoalBase):
@@ -28,6 +29,7 @@ class SubGoalUpdate(BaseModel):
     orden: Optional[int] = None
     tiempo_focus: Optional[int] = None
     notas: Optional[str] = None
+    folder_id: Optional[int] = None
 
 
 class SubGoalResponse(SubGoalBase):
@@ -36,6 +38,7 @@ class SubGoalResponse(SubGoalBase):
     objetivo_id: int
     fecha_creacion: Optional[datetime] = None
     orden: Optional[int] = None
-    
+    folder_id: Optional[int] = None
+
     class Config:
         from_attributes = True

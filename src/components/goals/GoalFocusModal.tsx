@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, ChevronRight, Eye, EyeOff, Focus, Pause, Play, RotateCcw, X, GripVertical } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Eye, EyeOff, Focus, FolderOpen, Pause, Play, RotateCcw, X, GripVertical } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
-import type { SubGoal, Goal } from '@/types';
+import type { SubGoal, Goal, GoalFolder } from '@/types';
 import { renderMarkdownPreview } from '@/utils/markdownPreview';
+import GoalFoldersModal from './GoalFoldersModal';
 
 interface GoalFocusModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   goal: Goal | null;
+  folders: GoalFolder[];
+  onFoldersChange: (folders: GoalFolder[]) => void;
   onSave: (goalId: string, updates: { subGoals: SubGoal[]; focusTimeSeconds: number; focusNotes: string }) => void;
   onComplete: (goalId: string) => void;
   onOpenSubGoalFocus: (subGoalId: string) => void;
@@ -16,11 +19,34 @@ interface GoalFocusModalProps {
 
 type TimerState = 'idle' | 'running' | 'paused';
 
-export default function GoalFocusModal({ 
-  open, 
-  onOpenChange, 
-  goal, 
-  onSave, 
+
+function buildDisplayGroups(items: SubGoal[], folders: GoalFolder[]): Array<{ folder?: GoalFolder; subs: SubGoal[] }> {
+  if (!folders.length || !items.some(s => s.folderId != null)) return [{ subs: items }];
+  const folderMap = new Map<number, SubGoal[]>();
+  const noFolder: SubGoal[] = [];
+  items.forEach(sub => {
+    if (sub.folderId != null) {
+      if (!folderMap.has(sub.folderId)) folderMap.set(sub.folderId, []);
+      folderMap.get(sub.folderId)!.push(sub);
+    } else {
+      noFolder.push(sub);
+    }
+  });
+  const groups: Array<{ folder?: GoalFolder; subs: SubGoal[] }> = [];
+  folderMap.forEach((subs, folderId) => {
+    groups.push({ folder: folders.find(f => f.id === folderId), subs });
+  });
+  if (noFolder.length > 0) groups.push({ subs: noFolder });
+  return groups;
+}
+
+export default function GoalFocusModal({
+  open,
+  onOpenChange,
+  goal,
+  folders,
+  onFoldersChange,
+  onSave,
   onComplete,
   onOpenSubGoalFocus
 }: GoalFocusModalProps) {
@@ -32,6 +58,7 @@ export default function GoalFocusModal({
   const [expandedSubgoals, setExpandedSubgoals] = useState<Set<string>>(new Set());
   const [hiddenSubGoalIds, setHiddenSubGoalIds] = useState<Set<string>>(new Set());
   const [showHiddenSubGoals, setShowHiddenSubGoals] = useState(false);
+  const [showFoldersModal, setShowFoldersModal] = useState(false);
   
   const intervalRef = useRef<number | null>(null);
   const prevOpenRef = useRef(open);
@@ -205,6 +232,9 @@ export default function GoalFocusModal({
     ? subGoals
     : subGoals.filter(s => !hiddenSubGoalIds.has(s.id));
 
+  const hasGroups = folders.length > 0 && visibleSubGoals.some(s => s.folderId != null);
+  const displayGroups = hasGroups ? buildDisplayGroups(visibleSubGoals, folders) : null;
+
   return (
     <div className="fixed inset-0 z-50 bg-background animate-fade-in overflow-y-auto">
       {/* Header */}
@@ -220,13 +250,22 @@ export default function GoalFocusModal({
                 <p className="text-xs text-muted-foreground">Concéntrate en este objetivo</p>
               </div>
             </div>
-            <button
-              onClick={handleClose}
-              className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
-            >
-              <X className="h-4 w-4" />
-              Cerrar
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowFoldersModal(true)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+              >
+                <FolderOpen className="h-4 w-4" />
+                Carpetas
+              </button>
+              <button
+                onClick={handleClose}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+              >
+                <X className="h-4 w-4" />
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -339,141 +378,266 @@ export default function GoalFocusModal({
           </div>
 
           {/* Subgoals list */}
-          <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="subgoals-list">
-              {(provided, snapshot) => (
-                <div
-                  className={`space-y-2 rounded-xl p-3 transition-colors ${
-                    snapshot.isDraggingOver 
-                      ? 'bg-primary/5 border-2 border-primary/30' 
-                      : 'border border-transparent'
-                  }`}
-                  {...provided.droppableProps}
-                  ref={provided.innerRef}
-                >
-                  {visibleSubGoals.map((sub, index) => {
-                    const checklistCounts = getChecklistCounts(sub.notes);
-                    const isExpanded = expandedSubgoals.has(sub.id);
-                    const hasNotes = !!sub.notes?.trim();
-                    const isHidden = hiddenSubGoalIds.has(sub.id);
-                    return (
-                      <Draggable key={sub.id} draggableId={String(sub.id)} index={index}>
-                        {(provided, snapshot) => {
-                          const card = (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            className={`rounded-xl border transition-all ${
-                              snapshot.isDragging
-                                ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20'
-                                : isHidden
-                                  ? 'border-dashed border-border bg-card opacity-40'
-                                  : 'border-border bg-card hover:border-primary/30'
-                            }`}
-                          >
-                            {/* Fila principal */}
-                            <div className="flex items-center gap-3 p-3">
-                              <div
-                                {...provided.dragHandleProps}
-                                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-grab active:cursor-grabbing"
-                                title="Arrastra para reordenar"
-                              >
-                                <GripVertical className="h-4 w-4" />
-                              </div>
-
-                              {/* Toggle Notion */}
-                              <button
-                                onClick={() => setExpandedSubgoals(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(sub.id)) next.delete(sub.id);
-                                  else next.add(sub.id);
-                                  return next;
-                                })}
-                                className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-                                title={isExpanded ? 'Colapsar' : 'Expandir'}
-                              >
-                                <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                              </button>
-
-                              <button
-                                onClick={() => toggleSubGoal(sub.id)}
-                                className={`h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                  sub.completed
-                                    ? 'bg-primary border-primary'
-                                    : 'border-input hover:border-primary'
-                                }`}
-                              >
-                                {sub.completed && (
-                                  <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </button>
-
-                              <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                                {sub.title}
-                              </span>
-
-                              {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  {Math.floor(sub.focusTimeSeconds / 60)}m
-                                </span>
+          {displayGroups ? (
+            /* Vista agrupada por carpeta */
+            <div className="space-y-4">
+              {displayGroups.map((group) => (
+                <div key={group.folder?.id ?? 'no-folder'}>
+                  {/* Encabezado de carpeta */}
+                  <div className="flex items-center gap-2 mb-2 px-1">
+                    <span className="text-base">{group.folder?.icono ?? '📁'}</span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {group.folder?.nombre ?? 'Sin carpeta'}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({group.subs.filter(s => s.completed).length}/{group.subs.length})
+                    </span>
+                    {group.folder && (
+                      <div
+                        className="ml-1 h-1.5 w-1.5 rounded-full"
+                        style={{ backgroundColor: group.folder.color ?? '#6b7280' }}
+                      />
+                    )}
+                  </div>
+                  <div className="space-y-2 pl-2 border-l-2 border-border ml-3">
+                    {group.subs.map(sub => {
+                      const checklistCounts = getChecklistCounts(sub.notes);
+                      const isExpanded = expandedSubgoals.has(sub.id);
+                      const hasNotes = !!sub.notes?.trim();
+                      const isHidden = hiddenSubGoalIds.has(sub.id);
+                      return (
+                        <div
+                          key={sub.id}
+                          className={`rounded-xl border transition-all ${
+                            isHidden
+                              ? 'border-dashed border-border bg-card opacity-40'
+                              : 'border-border bg-card hover:border-primary/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 p-3">
+                            <button
+                              onClick={() => setExpandedSubgoals(prev => {
+                                const next = new Set(prev);
+                                if (next.has(sub.id)) next.delete(sub.id);
+                                else next.add(sub.id);
+                                return next;
+                              })}
+                              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => toggleSubGoal(sub.id)}
+                              className={`h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                sub.completed ? 'bg-primary border-primary' : 'border-input hover:border-primary'
+                              }`}
+                            >
+                              {sub.completed && (
+                                <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
                               )}
-
-                              {checklistCounts && (
-                                <span className="text-xs text-muted-foreground">
-                                  {checklistCounts.completed}/{checklistCounts.total}
-                                </span>
-                              )}
-
+                            </button>
+                            <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                              {sub.title}
+                            </span>
+                            <select
+                              value={sub.folderId ?? ''}
+                              onChange={e => {
+                                const folderId = e.target.value ? Number(e.target.value) : undefined;
+                                const updated = subGoals.map(s => s.id === sub.id ? { ...s, folderId } : s);
+                                setSubGoals(updated);
+                                setHasUnsavedChanges(false);
+                                if (goal) onSave(goal.id, { subGoals: updated, focusTimeSeconds: seconds, focusNotes: notes.trim() });
+                              }}
+                              className="text-xs bg-muted rounded-lg px-1.5 py-0.5 border-0 outline-none text-muted-foreground max-w-[100px] truncate"
+                            >
+                              <option value="">Sin carpeta</option>
+                              {folders.map(f => (
+                                <option key={f.id} value={f.id}>{f.icono || '📁'} {f.nombre}</option>
+                              ))}
+                            </select>
+                            {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
+                              <span className="text-xs text-muted-foreground">{Math.floor(sub.focusTimeSeconds / 60)}m</span>
+                            )}
+                            {checklistCounts && (
+                              <span className="text-xs text-muted-foreground">{checklistCounts.completed}/{checklistCounts.total}</span>
+                            )}
+                            <button
+                              onClick={() => handleHideSubGoal(sub.id)}
+                              className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:bg-accent transition-colors"
+                              title={isHidden ? 'Mostrar hoy' : 'Ocultar hoy'}
+                            >
+                              {isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                            </button>
+                            {!sub.completed && !isHidden && (
                               <button
-                                onClick={() => handleHideSubGoal(sub.id)}
-                                className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:bg-accent transition-colors"
-                                title={isHidden ? 'Mostrar hoy' : 'Ocultar hoy'}
+                                onClick={() => onOpenSubGoalFocus(sub.id)}
+                                className="rounded-lg bg-primary/10 hover:bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary transition-colors flex items-center gap-1"
                               >
-                                {isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                                <Focus className="h-3.5 w-3.5" />
+                                Focus
                               </button>
-
-                              {!sub.completed && !isHidden && (
-                                <button
-                                  onClick={() => onOpenSubGoalFocus(sub.id)}
-                                  className="rounded-lg bg-primary/10 hover:bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary transition-colors flex items-center gap-1"
-                                >
-                                  <Focus className="h-3.5 w-3.5" />
-                                  Focus
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Contenido expandible */}
-                            {isExpanded && (
-                              <div className="px-4 pb-3 border-t border-border/50 pt-3 ml-10">
-                                {hasNotes ? (
-                                  <div
-                                    className="prose prose-sm max-w-none text-foreground text-sm"
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdownPreview(sub.notes!) }}
-                                  />
-                                ) : (
-                                  <p className="text-xs text-muted-foreground italic">
-                                    Sin notas. Usa el botón Focus para agregar contenido a este subobjetivo.
-                                  </p>
-                                )}
-                              </div>
                             )}
                           </div>
-                          );
-                          return snapshot.isDragging
-                            ? createPortal(card, document.body)
-                            : card;
-                        }}
-                      </Draggable>
-                    );
-                  })}
-                  {provided.placeholder}
+                          {isExpanded && (
+                            <div className="px-4 pb-3 border-t border-border/50 pt-3 ml-10">
+                              {hasNotes ? (
+                                <div
+                                  className="prose prose-sm max-w-none text-foreground text-sm"
+                                  dangerouslySetInnerHTML={{ __html: renderMarkdownPreview(sub.notes!) }}
+                                />
+                              ) : (
+                                <p className="text-xs text-muted-foreground italic">
+                                  Sin notas. Usa el botón Focus para agregar contenido a este subobjetivo.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-            </Droppable>
-          </DragDropContext>
+              ))}
+            </div>
+          ) : (
+            /* Vista plana con DnD */
+            <DragDropContext onDragEnd={handleDragEnd}>
+              <Droppable droppableId="subgoals-list">
+                {(provided, snapshot) => (
+                  <div
+                    className={`space-y-2 rounded-xl p-3 transition-colors ${
+                      snapshot.isDraggingOver
+                        ? 'bg-primary/5 border-2 border-primary/30'
+                        : 'border border-transparent'
+                    }`}
+                    {...provided.droppableProps}
+                    ref={provided.innerRef}
+                  >
+                    {visibleSubGoals.map((sub, index) => {
+                      const checklistCounts = getChecklistCounts(sub.notes);
+                      const isExpanded = expandedSubgoals.has(sub.id);
+                      const hasNotes = !!sub.notes?.trim();
+                      const isHidden = hiddenSubGoalIds.has(sub.id);
+                      return (
+                        <Draggable key={sub.id} draggableId={String(sub.id)} index={index}>
+                          {(provided, snapshot) => {
+                            const card = (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                className={`rounded-xl border transition-all ${
+                                  snapshot.isDragging
+                                    ? 'bg-primary/20 border-primary shadow-lg shadow-primary/20'
+                                    : isHidden
+                                      ? 'border-dashed border-border bg-card opacity-40'
+                                      : 'border-border bg-card hover:border-primary/30'
+                                }`}
+                              >
+                                <div className="flex items-center gap-3 p-3">
+                                  <div
+                                    {...provided.dragHandleProps}
+                                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-grab active:cursor-grabbing"
+                                    title="Arrastra para reordenar"
+                                  >
+                                    <GripVertical className="h-4 w-4" />
+                                  </div>
+                                  <button
+                                    onClick={() => setExpandedSubgoals(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(sub.id)) next.delete(sub.id);
+                                      else next.add(sub.id);
+                                      return next;
+                                    })}
+                                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+                                    title={isExpanded ? 'Colapsar' : 'Expandir'}
+                                  >
+                                    <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                  </button>
+                                  <button
+                                    onClick={() => toggleSubGoal(sub.id)}
+                                    className={`h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all ${
+                                      sub.completed ? 'bg-primary border-primary' : 'border-input hover:border-primary'
+                                    }`}
+                                  >
+                                    {sub.completed && (
+                                      <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                  <span className={`flex-1 text-sm ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                                    {sub.title}
+                                  </span>
+                                  {folders.length > 0 && (
+                                    <select
+                                      value={sub.folderId ?? ''}
+                                      onChange={e => {
+                                        const folderId = e.target.value ? Number(e.target.value) : undefined;
+                                        const updated = subGoals.map(s => s.id === sub.id ? { ...s, folderId } : s);
+                                        setSubGoals(updated);
+                                        setHasUnsavedChanges(false);
+                                        if (goal) onSave(goal.id, { subGoals: updated, focusTimeSeconds: seconds, focusNotes: notes.trim() });
+                                      }}
+                                      className="text-xs bg-muted rounded-lg px-1.5 py-0.5 border-0 outline-none text-muted-foreground max-w-[100px] truncate"
+                                    >
+                                      <option value="">Sin carpeta</option>
+                                      {folders.map(f => (
+                                        <option key={f.id} value={f.id}>{f.icono || '📁'} {f.nombre}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                  {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
+                                    <span className="text-xs text-muted-foreground">{Math.floor(sub.focusTimeSeconds / 60)}m</span>
+                                  )}
+                                  {checklistCounts && (
+                                    <span className="text-xs text-muted-foreground">{checklistCounts.completed}/{checklistCounts.total}</span>
+                                  )}
+                                  <button
+                                    onClick={() => handleHideSubGoal(sub.id)}
+                                    className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:bg-accent transition-colors"
+                                    title={isHidden ? 'Mostrar hoy' : 'Ocultar hoy'}
+                                  >
+                                    {isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                                  </button>
+                                  {!sub.completed && !isHidden && (
+                                    <button
+                                      onClick={() => onOpenSubGoalFocus(sub.id)}
+                                      className="rounded-lg bg-primary/10 hover:bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary transition-colors flex items-center gap-1"
+                                    >
+                                      <Focus className="h-3.5 w-3.5" />
+                                      Focus
+                                    </button>
+                                  )}
+                                </div>
+                                {isExpanded && (
+                                  <div className="px-4 pb-3 border-t border-border/50 pt-3 ml-10">
+                                    {hasNotes ? (
+                                      <div
+                                        className="prose prose-sm max-w-none text-foreground text-sm"
+                                        dangerouslySetInnerHTML={{ __html: renderMarkdownPreview(sub.notes!) }}
+                                      />
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground italic">
+                                        Sin notas. Usa el botón Focus para agregar contenido a este subobjetivo.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                            return snapshot.isDragging ? createPortal(card, document.body) : card;
+                          }}
+                        </Draggable>
+                      );
+                    })}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
+          )}
 
           {totalCount === 0 && (
             <div className="text-center py-8 text-muted-foreground">
@@ -531,6 +695,12 @@ export default function GoalFocusModal({
           </div>
         </div>
       </div>
+      <GoalFoldersModal
+        open={showFoldersModal}
+        onOpenChange={setShowFoldersModal}
+        folders={folders}
+        onFoldersChange={onFoldersChange}
+      />
     </div>
   );
 }

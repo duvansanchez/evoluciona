@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import (
     GoalCreate, GoalUpdate, GoalResponse, GoalFocusUpdate,
-    GoalsPaginatedResponse
+    GoalsPaginatedResponse, GoalSkipDayResponse
 )
 from app.services.goal_service import GoalService
 from typing import List
@@ -30,6 +30,7 @@ def list_goals(
     category: str = Query(None),
     completed: bool = Query(None),
     scheduled_for: str = Query(None),
+    skip_date: str = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db)
@@ -40,6 +41,7 @@ def list_goals(
         category=category,
         completed=completed,
         scheduled_for=scheduled_for,
+        skip_date=skip_date,
         page=page,
         page_size=page_size
     )
@@ -51,6 +53,15 @@ def list_goals(
         pages=pages,
         items=goals
     )
+
+
+@router.get("/skips", response_model=List[int])
+def list_skipped_goals(
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Obtener IDs de objetivos saltados para una fecha."""
+    return GoalService.get_skipped_goal_ids(db, fecha)
 
 
 @router.get("/{goal_id}", response_model=GoalResponse)
@@ -88,3 +99,29 @@ def update_goal_focus(goal_id: int, focus: GoalFocusUpdate, db: Session = Depend
     if not db_goal:
         raise HTTPException(status_code=404, detail="Goal not found")
     return db_goal
+
+
+@router.post("/{goal_id}/skip", response_model=GoalSkipDayResponse, status_code=201)
+def skip_goal_for_date(
+    goal_id: int,
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Marcar un objetivo recurrente como saltado para una fecha."""
+    skipped = GoalService.skip_goal_for_date(db, goal_id, fecha)
+    if not skipped:
+        raise HTTPException(status_code=404, detail="Recurring goal not found")
+    return GoalSkipDayResponse(goal_id=skipped.objetivo_id, fecha=skipped.fecha)
+
+
+@router.delete("/{goal_id}/skip")
+def unskip_goal_for_date(
+    goal_id: int,
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Quitar el estado de saltado de un objetivo para una fecha."""
+    removed = GoalService.unskip_goal_for_date(db, goal_id, fecha)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skipped goal entry not found")
+    return {"message": "Goal skip removed"}

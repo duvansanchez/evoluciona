@@ -1,5 +1,5 @@
-import { ArrowUpCircle, Check, ChevronDown, ChevronUp, Clock, Edit2, EyeOff, Eye, Focus, Repeat, Trash2 } from 'lucide-react';
-import type { Goal } from '@/types';
+import { ArrowUpCircle, Check, ChevronDown, ChevronUp, Clock, Edit2, Eye, Focus, Repeat, SkipForward, Trash2 } from 'lucide-react';
+import type { Goal, GoalFolder } from '@/types';
 import { useState } from 'react';
 
 const categoryStyles: Record<string, string> = {
@@ -24,25 +24,35 @@ const dayPartLabels: Record<string, string> = {
 
 interface GoalCardProps {
   goal: Goal;
-  isHidden?: boolean;
+  isSkipped?: boolean;
+  folders?: GoalFolder[];
   onEdit?: (id: string) => void;
   onToggle?: (id: string) => void;
   onFocusGoal?: (goalId: string) => void;
   onDelete?: (id: string) => void;
   onToggleSubGoal?: (subGoalId: string) => void;
-  onHide?: (id: string) => void;
+  onSkipToday?: (id: string) => void;
   onMakeCurrent?: (id: string) => void;
 }
 
-export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onHide, onMakeCurrent }: GoalCardProps) {
+export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onSkipToday, onMakeCurrent }: GoalCardProps) {
   const [expanded, setExpanded] = useState(true);
   const completedSubs = goal.subGoals.filter(s => s.completed).length;
+
+  // Agrupar subobjetivos por carpeta
+  const folderedSubs = goal.subGoals.filter(s => s.folderId);
+  const unfoldered = goal.subGoals.filter(s => !s.folderId);
+  const usedFolderIds = [...new Set(folderedSubs.map(s => s.folderId!))];
+  const grouped = usedFolderIds.map(fid => ({
+    folder: folders.find(f => f.id === fid),
+    subs: folderedSubs.filter(s => s.folderId === fid),
+  }));
 
   return (
     <div
       className={`group rounded-xl border bg-card p-4 transition-all hover:shadow-md ${
-        isHidden ? 'opacity-40 border-dashed' : goal.completed ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
-      } ${goal.skipped ? 'opacity-40' : ''}`}
+        isSkipped ? 'opacity-40 border-dashed' : goal.completed ? 'opacity-60 border-border' : 'border-border hover:border-primary/30'
+      }`}
     >
       <div className="flex items-start gap-3">
         {/* Checkbox */}
@@ -74,13 +84,15 @@ export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal
                   <Focus className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button
-                onClick={() => onHide?.(goal.id)}
-                className="p-1 rounded hover:bg-accent text-muted-foreground"
-                title={isHidden ? 'Mostrar hoy' : 'Ocultar hoy'}
-              >
-                {isHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              </button>
+              {goal.recurring && !goal.completed && (
+                <button
+                  onClick={() => onSkipToday?.(goal.id)}
+                  className="p-1 rounded hover:bg-accent text-muted-foreground"
+                  title={isSkipped ? 'Mostrar hoy' : 'Saltar hoy'}
+                >
+                  {isSkipped ? <Eye className="h-3.5 w-3.5" /> : <SkipForward className="h-3.5 w-3.5" />}
+                </button>
+              )}
               <button onClick={() => onEdit?.(goal.id)} className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
               <button onClick={() => onDelete?.(goal.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
             </div>
@@ -103,6 +115,11 @@ export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal
             {goal.recurring && (
               <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
                 <Repeat className="h-3 w-3" /> Recurrente
+              </span>
+            )}
+            {isSkipped && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                <SkipForward className="h-3 w-3" /> Saltado hoy
               </span>
             )}
             {goal.dayPart && (
@@ -150,26 +167,24 @@ export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal
                 />
               </div>
               {expanded && (
-                <div className="mt-2 space-y-1.5 animate-fade-in">
-                  {goal.subGoals.map(sub => (
-                    <div key={sub.id} className="group/sub flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-accent/50 transition-colors">
-                      <button
-                        onClick={() => onToggleSubGoal?.(sub.id)}
-                        className={`h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center transition-colors cursor-pointer ${
-                          sub.completed ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30 hover:border-primary'
-                        }`}
-                      >
-                        {sub.completed && <Check className="h-2.5 w-2.5" />}
-                      </button>
-                      <span className={`flex-1 ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                        {sub.title}
-                      </span>
-                      {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
-                        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                          <Clock className="h-3 w-3" />
-                          {Math.floor(sub.focusTimeSeconds / 60)}m
-                        </span>
-                      )}
+                <div className="mt-2 space-y-2 animate-fade-in">
+                  {/* Subobjetivos sin carpeta */}
+                  {unfoldered.map(sub => (
+                    <SubGoalRow key={sub.id} sub={sub} onToggle={onToggleSubGoal} />
+                  ))}
+                  {/* Grupos por carpeta */}
+                  {grouped.map(({ folder, subs }) => (
+                    <div key={folder?.id ?? 'unknown'} className="rounded-lg border border-border/60 overflow-hidden">
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-muted/40">
+                        <span className="text-[11px]">{folder?.icono || '📁'}</span>
+                        <div className="h-2 w-2 rounded-full" style={{ background: folder?.color || '#6366f1' }} />
+                        <span className="text-[11px] font-semibold text-muted-foreground">{folder?.nombre || 'Carpeta'}</span>
+                      </div>
+                      <div className="px-1 py-0.5 space-y-0.5">
+                        {subs.map(sub => (
+                          <SubGoalRow key={sub.id} sub={sub} onToggle={onToggleSubGoal} />
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -178,6 +193,30 @@ export default function GoalCard({ goal, isHidden, onToggle, onEdit, onFocusGoal
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SubGoalRow({ sub, onToggle }: { sub: import('@/types').SubGoal; onToggle?: (id: string) => void }) {
+  return (
+    <div className="group/sub flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-accent/50 transition-colors">
+      <button
+        onClick={() => onToggle?.(sub.id)}
+        className={`h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center transition-colors cursor-pointer ${
+          sub.completed ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30 hover:border-primary'
+        }`}
+      >
+        {sub.completed && <Check className="h-2.5 w-2.5" />}
+      </button>
+      <span className={`flex-1 ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+        {sub.title}
+      </span>
+      {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
+        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+          <Clock className="h-3 w-3" />
+          {Math.floor(sub.focusTimeSeconds / 60)}m
+        </span>
+      )}
     </div>
   );
 }

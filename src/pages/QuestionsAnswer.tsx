@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays, Pencil } from 'lucide-react';
+import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays, Pencil, MessageSquare, Trash2, SkipForward } from 'lucide-react';
 import { questionsAPI } from '@/services/api';
 import { getLocalDateString } from '@/lib/utils';
-import type { Question } from '@/types';
+import type { Question, QuestionFeedback } from '@/types';
 
 export default function QuestionsAnswer() {
   const [searchParams] = useSearchParams();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [responses, setResponses] = useState<Record<string, string | string[]>>({});
   const [savedQuestions, setSavedQuestions] = useState<Set<string>>(new Set());
+  const [skippedQuestionIds, setSkippedQuestionIds] = useState<Set<string>>(new Set());
+  const [feedbacks, setFeedbacks] = useState<Record<string, QuestionFeedback>>({});
   const [loading, setLoading] = useState(true);
   const [showConfirm, setShowConfirm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [feedbackQuestion, setFeedbackQuestion] = useState<Question | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState('');
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const todayKey = getLocalDateString();
   const dateParam = searchParams.get('date');
@@ -40,7 +46,7 @@ export default function QuestionsAnswer() {
 
   const answeredCount = displayQuestions.filter(q => {
     const v = responses[q.id];
-    return v !== undefined && (Array.isArray(v) ? v.length > 0 : v !== '');
+    return skippedQuestionIds.has(q.id) || (v !== undefined && (Array.isArray(v) ? v.length > 0 : v !== ''));
   }).length;
   const totalCount = displayQuestions.length;
   const progress = totalCount > 0 ? (answeredCount / totalCount) * 100 : 0;
@@ -55,6 +61,22 @@ export default function QuestionsAnswer() {
     const frequency = (item?.frecuencia ?? '').toString().trim().toLowerCase();
     if (!frequency) return true;
     return frequency === 'diaria' || frequency === 'diario' || frequency === 'daily';
+  };
+
+  const mapFeedbacks = (items: any[]): Record<string, QuestionFeedback> => {
+    return items.reduce((acc, item) => {
+      const key = item.question_id?.toString?.() ?? item.questionId?.toString?.();
+      if (!key) return acc;
+      acc[key] = {
+        id: (item.id ?? '').toString(),
+        questionId: key,
+        date: item.date ?? item.fecha ?? targetDate,
+        text: item.text ?? item.texto ?? '',
+        createdAt: item.created_at ?? item.createdAt,
+        updatedAt: item.updated_at ?? item.updatedAt,
+      };
+      return acc;
+    }, {} as Record<string, QuestionFeedback>);
   };
 
   useEffect(() => {
@@ -83,12 +105,15 @@ export default function QuestionsAnswer() {
               createdAt: entry.answered_at,
               order: 0,
               options: parsedOptions,
+              skipped: Boolean(entry.skipped),
             };
           });
           setQuestions(mapped);
 
           const initialResponses: Record<string, string | string[]> = {};
           const alreadySaved = new Set<string>();
+          const loadedFeedbacks = await questionsAPI.getQuestionFeedbacks(targetDate);
+          const loadedSkips = await questionsAPI.getSkippedQuestions(targetDate);
           entries.forEach((entry: any) => {
             const qid = entry.question_id.toString();
             const raw = entry.response ?? '';
@@ -101,6 +126,8 @@ export default function QuestionsAnswer() {
           });
           setResponses(initialResponses);
           setSavedQuestions(alreadySaved);
+          setSkippedQuestionIds(new Set(loadedSkips.map(id => id.toString())));
+          setFeedbacks(mapFeedbacks(loadedFeedbacks));
         } else {
           // Normal mode: load active questions + session responses
           const response = await questionsAPI.getQuestions(1, 100, undefined, true, 'diaria');
@@ -126,6 +153,8 @@ export default function QuestionsAnswer() {
 
           // Cargar respuestas guardadas del día (hoy o ayer)
           const session = await questionsAPI.getDailySession(targetDate);
+          const loadedFeedbacks = await questionsAPI.getQuestionFeedbacks(targetDate);
+          const loadedSkips = await questionsAPI.getSkippedQuestions(targetDate);
           const initialResponses: Record<string, string | string[]> = {};
           const alreadySaved = new Set<string>();
 
@@ -142,6 +171,8 @@ export default function QuestionsAnswer() {
 
           setResponses(initialResponses);
           setSavedQuestions(alreadySaved);
+          setSkippedQuestionIds(new Set(loadedSkips.map(id => id.toString())));
+          setFeedbacks(mapFeedbacks(loadedFeedbacks));
         }
       } catch (error) {
         console.error('Error loading questions:', error);
@@ -155,6 +186,11 @@ export default function QuestionsAnswer() {
 
   const handleResponse = (questionId: string, value: string | string[]) => {
     setResponses(prev => ({ ...prev, [questionId]: value }));
+    setSkippedQuestionIds(prev => {
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
     // Marcar como no guardada si el usuario modificó la respuesta
     setSavedQuestions(prev => { const s = new Set(prev); s.delete(questionId); return s; });
   };
@@ -162,6 +198,110 @@ export default function QuestionsAnswer() {
   const handleSaveClick = () => {
     if (pendingToSave.length === 0) return;
     setShowConfirm(true);
+  };
+
+  const handleToggleSkip = async (questionId: string) => {
+    const isSkipped = skippedQuestionIds.has(questionId);
+    const nextSkipped = new Set(skippedQuestionIds);
+
+    if (isSkipped) {
+      nextSkipped.delete(questionId);
+      setSkippedQuestionIds(nextSkipped);
+      try {
+        await questionsAPI.unskipQuestionForDate(targetDate, questionId);
+      } catch (error) {
+        console.error('Error unskipping question:', error);
+        setSkippedQuestionIds(new Set(skippedQuestionIds));
+      }
+      return;
+    }
+
+    nextSkipped.add(questionId);
+    setSkippedQuestionIds(nextSkipped);
+    setResponses(prev => {
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
+    setSavedQuestions(prev => {
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
+
+    try {
+      await questionsAPI.skipQuestionForDate(targetDate, questionId);
+    } catch (error) {
+      console.error('Error skipping question:', error);
+      setSkippedQuestionIds(new Set(skippedQuestionIds));
+    }
+  };
+
+  const openFeedback = (question: Question) => {
+    setFeedbackQuestion(question);
+    setFeedbackDraft(feedbacks[question.id]?.text ?? '');
+    setFeedbackError(null);
+  };
+
+  const closeFeedback = () => {
+    if (feedbackSaving) return;
+    setFeedbackQuestion(null);
+    setFeedbackDraft('');
+    setFeedbackError(null);
+  };
+
+  const handleSaveFeedback = async () => {
+    if (!feedbackQuestion) return;
+    const trimmed = feedbackDraft.trim();
+    if (!trimmed) {
+      setFeedbackError('Escribe un feedback antes de guardar.');
+      return;
+    }
+
+    try {
+      setFeedbackSaving(true);
+      setFeedbackError(null);
+      const saved = await questionsAPI.saveQuestionFeedback(targetDate, feedbackQuestion.id, trimmed);
+      setFeedbacks(prev => ({
+        ...prev,
+        [feedbackQuestion.id]: {
+          id: saved.id.toString(),
+          questionId: saved.question_id?.toString?.() ?? feedbackQuestion.id,
+          date: saved.date,
+          text: saved.text,
+          createdAt: saved.created_at,
+          updatedAt: saved.updated_at,
+        },
+      }));
+      setFeedbackQuestion(null);
+      setFeedbackDraft('');
+    } catch (error) {
+      console.error('Error saving feedback:', error);
+      setFeedbackError('No se pudo guardar el feedback.');
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
+  const handleDeleteFeedback = async () => {
+    if (!feedbackQuestion) return;
+    try {
+      setFeedbackSaving(true);
+      setFeedbackError(null);
+      await questionsAPI.deleteQuestionFeedback(targetDate, feedbackQuestion.id);
+      setFeedbacks(prev => {
+        const next = { ...prev };
+        delete next[feedbackQuestion.id];
+        return next;
+      });
+      setFeedbackQuestion(null);
+      setFeedbackDraft('');
+    } catch (error) {
+      console.error('Error deleting feedback:', error);
+      setFeedbackError('No se pudo eliminar el feedback.');
+    } finally {
+      setFeedbackSaving(false);
+    }
   };
 
   const handleConfirmSave = async () => {
@@ -263,8 +403,12 @@ export default function QuestionsAnswer() {
                 question={question}
                 index={index + 1}
                 value={responses[question.id]}
+                feedback={feedbacks[question.id]}
+                isSkipped={skippedQuestionIds.has(question.id)}
                 isSaved={savedQuestions.has(question.id)}
                 onChange={(value) => handleResponse(question.id, value)}
+                onToggleSkip={() => handleToggleSkip(question.id)}
+                onOpenFeedback={() => openFeedback(question)}
                 readOnly={isViewOnly || isHistory}
                 showDeactivatedBadge={isHistory && !question.active}
               />
@@ -290,9 +434,9 @@ export default function QuestionsAnswer() {
             ) : (
               <button
                 onClick={handleSaveClick}
-                disabled={answeredCount === 0}
+                disabled={pendingToSave.length === 0}
                 className={`flex items-center gap-2 px-8 py-3 rounded-xl font-semibold text-white shadow-lg transition-all ${
-                  answeredCount > 0
+                  pendingToSave.length > 0
                     ? 'bg-primary hover:bg-primary/90 hover:scale-105'
                     : 'bg-muted text-muted-foreground cursor-not-allowed shadow-none'
                 }`}
@@ -367,6 +511,79 @@ export default function QuestionsAnswer() {
           </div>
         </div>
       )}
+
+      {feedbackQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card rounded-2xl shadow-xl w-full max-w-xl border border-border">
+            <div className="flex items-start justify-between gap-4 p-6 border-b border-border">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Feedback de la pregunta</h2>
+                <p className="text-sm text-muted-foreground mt-1">{feedbackQuestion.title}</p>
+                <p className="text-xs text-muted-foreground mt-1 capitalize">{targetDateLabel}</p>
+              </div>
+              <button
+                onClick={closeFeedback}
+                disabled={feedbackSaving}
+                className="px-3 py-2 rounded-lg border border-border text-sm text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <textarea
+                value={feedbackDraft}
+                onChange={(e) => setFeedbackDraft(e.target.value)}
+                readOnly={isViewOnly || isHistory}
+                placeholder="Escribe el contexto, lo que pasó hoy, lo que notaste o lo que te deja esta pregunta..."
+                className="w-full min-h-[180px] px-4 py-3 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y read-only:opacity-80"
+                maxLength={4000}
+              />
+              <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+                <span>{feedbackDraft.length}/4000 caracteres</span>
+                {feedbacks[feedbackQuestion.id]?.updatedAt && (
+                  <span>
+                    Última actualización: {new Date(feedbacks[feedbackQuestion.id].updatedAt + '').toLocaleString('es-ES')}
+                  </span>
+                )}
+              </div>
+              {feedbackError && (
+                <p className="text-sm text-destructive">{feedbackError}</p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-6 pt-0">
+              <div>
+                {!isViewOnly && !isHistory && feedbacks[feedbackQuestion.id] && (
+                  <button
+                    onClick={handleDeleteFeedback}
+                    disabled={feedbackSaving}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-destructive/20 text-destructive font-medium hover:bg-destructive/5 transition-colors disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Eliminar
+                  </button>
+                )}
+              </div>
+
+              {!isViewOnly && !isHistory && (
+                <button
+                  onClick={handleSaveFeedback}
+                  disabled={feedbackSaving}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {feedbackSaving ? (
+                    <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {feedbackSaving ? 'Guardando...' : 'Guardar feedback'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -375,20 +592,29 @@ function QuestionCard({
   question,
   index,
   value,
+  feedback,
+  isSkipped,
   isSaved,
   onChange,
+  onToggleSkip,
+  onOpenFeedback,
   readOnly = false,
   showDeactivatedBadge = false,
 }: {
   question: Question;
   index: number;
   value: string | string[] | undefined;
+  feedback?: QuestionFeedback;
+  isSkipped: boolean;
   isSaved: boolean;
   onChange: (value: string | string[]) => void;
+  onToggleSkip: () => void;
+  onOpenFeedback: () => void;
   readOnly?: boolean;
   showDeactivatedBadge?: boolean;
 }) {
   const isAnswered = value !== undefined && (Array.isArray(value) ? value.length > 0 : value !== '');
+  const hasFeedback = Boolean(feedback?.text?.trim());
 
   // In read-only mode, render the answer as plain text
   const renderReadOnly = () => {
@@ -421,20 +647,24 @@ function QuestionCard({
 
   return (
     <div className={`bg-card rounded-xl p-6 border transition-all ${
-      readOnly
-        ? 'border-green-200 bg-green-50/30'
-        : isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
+      isSkipped
+        ? 'border-amber-400/60 bg-amber-50/30 shadow-sm'
+        : readOnly
+          ? 'border-green-200 bg-green-50/30'
+          : isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
     }`}>
       {/* Question header */}
       <div className="flex items-start gap-3 mb-4">
         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-          readOnly || isSaved
-            ? 'bg-green-500 text-white'
+          isSkipped
+            ? 'bg-amber-500 text-white'
+            : readOnly || isSaved
+              ? 'bg-green-500 text-white'
             : isAnswered
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground'
         }`}>
-          {(readOnly && isAnswered) || isSaved ? <CheckCircle2 className="h-4 w-4" /> : index}
+          {(readOnly && isAnswered) || isSaved ? <CheckCircle2 className="h-4 w-4" /> : isSkipped ? <SkipForward className="h-4 w-4" /> : index}
         </div>
         <div className="flex-1">
           <h3 className="text-base font-semibold text-foreground mb-1">
@@ -446,6 +676,32 @@ function QuestionCard({
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
+          {!readOnly && (
+            <button
+              onClick={onToggleSkip}
+              className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                isSkipped
+                  ? 'text-amber-700 bg-amber-100 border-amber-200 hover:bg-amber-200/80'
+                  : 'text-muted-foreground bg-background border-border hover:bg-muted'
+              }`}
+            >
+              <SkipForward className="h-3.5 w-3.5" />
+              {isSkipped ? 'Quitar salto' : 'Saltar hoy'}
+            </button>
+          )}
+          {(hasFeedback || !readOnly) && (
+            <button
+              onClick={onOpenFeedback}
+              className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                hasFeedback
+                  ? 'text-primary bg-primary/10 border-primary/20 hover:bg-primary/15'
+                  : 'text-muted-foreground bg-background border-border hover:bg-muted'
+              }`}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              {hasFeedback ? (readOnly ? 'Ver feedback' : 'Editar feedback') : 'Feedback'}
+            </button>
+          )}
           {showDeactivatedBadge && (
             <span className="flex-shrink-0 text-xs font-medium text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
               Desactivada
@@ -456,12 +712,24 @@ function QuestionCard({
               Guardada
             </span>
           )}
+          {isSkipped && (
+            <span className="flex-shrink-0 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+              {readOnly ? 'Saltada' : 'Saltada hoy'}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Question input / read-only display */}
       <div className="ml-11">
-        {readOnly ? renderReadOnly() : (
+        {isSkipped ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">Pregunta saltada para este día.</p>
+            <p className="text-sm text-amber-700 mt-1">
+              Queda registrada como omitida intencionalmente, no como falta de respuesta.
+            </p>
+          </div>
+        ) : readOnly ? renderReadOnly() : (
           <>
         {question.type === 'text' && (
           <textarea
@@ -536,6 +804,12 @@ function QuestionCard({
           </div>
         )}
           </>
+        )}
+        {hasFeedback && (
+          <div className="mt-4 rounded-lg border border-primary/15 bg-primary/5 px-4 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-1">Feedback del día</p>
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{feedback?.text}</p>
+          </div>
         )}
       </div>
     </div>

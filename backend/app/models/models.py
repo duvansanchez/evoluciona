@@ -6,7 +6,7 @@ Mapean las tablas de SQL Server.
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime,
-    ForeignKey, Text, Numeric, Float, Enum as SQLEnum, Unicode, Table
+    ForeignKey, Text, Numeric, Float, Enum as SQLEnum, Unicode, Table, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -92,6 +92,33 @@ class Goal(Base):
         single_parent=True
     )
     parent = relationship("Goal", back_populates="subgoals", remote_side=[objetivo_padre_id])
+    skip_days = relationship("GoalSkipDay", back_populates="goal", cascade="all, delete-orphan")
+
+
+class GoalSkipDay(Base):
+    """Marca un objetivo recurrente como saltado para una fecha concreta."""
+    __tablename__ = "objetivo_saltado_dias"
+    __table_args__ = (
+        UniqueConstraint("objetivo_id", "fecha", name="uq_objetivo_saltado_dia"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    objetivo_id = Column(Integer, ForeignKey("objetivos.id"), nullable=False)
+    fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
+
+    goal = relationship("Goal", back_populates="skip_days")
+
+
+class GoalFolder(Base):
+    """Modelo para carpetas reutilizables de subobjetivos."""
+    __tablename__ = "carpetas_subobjetivos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nombre = Column(String(100), nullable=False)
+    icono = Column(Unicode(10), nullable=True)
+    color = Column(String(20), nullable=True)
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
 
 
 class PhraseCategory(Base):
@@ -130,6 +157,22 @@ class Phrase(Base):
     # Relaciones
     category = relationship("PhraseCategory", back_populates="phrases", foreign_keys=[categoria_id])
     subcategory = relationship("PhraseSubcategory", back_populates="phrases", foreign_keys=[subcategoria_id])
+    review_logs = relationship("PhraseReviewLog", back_populates="phrase", cascade="all, delete-orphan")
+
+
+class PhraseReviewLog(Base):
+    """Historial de repasos de frases para informes semanales/mensuales."""
+    __tablename__ = "frase_repaso_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    phrase_id = Column(Integer, ForeignKey("frases.id"), nullable=False)
+    review_plan_id = Column(Integer, ForeignKey("review_plans.id"), nullable=True)
+    session_label = Column(String(255), nullable=True)
+    reviewed_at = Column(DateTime, nullable=False, default=datetime.now)
+    review_date = Column(String(10), nullable=False)  # YYYY-MM-DD
+
+    phrase = relationship("Phrase", back_populates="review_logs", foreign_keys=[phrase_id])
+    review_plan = relationship("ReviewPlan", foreign_keys=[review_plan_id])
 
 
 class Question(Base):
@@ -169,6 +212,38 @@ class QuestionResponse(Base):
 
     # Relaciones
     question = relationship("Question", back_populates="responses", foreign_keys=[question_id])
+
+
+class QuestionFeedback(Base):
+    """Feedback libre asociado a una pregunta en una fecha concreta."""
+    __tablename__ = "question_feedback"
+    __table_args__ = (
+        UniqueConstraint("question_id", "fecha", name="uq_question_feedback_question_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    question_id = Column(Integer, ForeignKey("question.id"), nullable=False)
+    fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    texto = Column(Text, nullable=False)
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
+    fecha_actualizacion = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now)
+
+    question = relationship("Question", foreign_keys=[question_id])
+
+
+class QuestionSkipDay(Base):
+    """Marca una pregunta como saltada para una fecha concreta."""
+    __tablename__ = "question_skip_days"
+    __table_args__ = (
+        UniqueConstraint("question_id", "fecha", name="uq_question_skip_day_question_date"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    question_id = Column(Integer, ForeignKey("question.id"), nullable=False)
+    fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
+
+    question = relationship("Question", foreign_keys=[question_id])
 
 
 class PhraseSubcategory(Base):

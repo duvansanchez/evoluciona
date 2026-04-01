@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, Circle, Eye, EyeOff, Grid3X3, History, List, Plus, Target, TrendingUp, Sun, Sunset, Moon } from 'lucide-react';
+import { CheckCircle2, Circle, Eye, Grid3X3, History, List, Plus, SkipForward, Target, TrendingUp, Sun, Sunset, Moon } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalModal from '@/components/goals/GoalModal';
 import GoalFocusModal from '@/components/goals/GoalFocusModal';
 import FocusModal from '@/components/goals/FocusModal';
-import { goalsAPI, rutinasAPI } from '@/services/api';
-import type { Goal, GoalCategory, SubGoal } from '@/types';
+import { goalFoldersAPI, goalsAPI, rutinasAPI } from '@/services/api';
+import type { Goal, GoalCategory, GoalFolder, SubGoal } from '@/types';
 import type { RutinaAsignacion } from '@/services/api';
+import { getLocalDateString } from '@/lib/utils';
 
 const tabs: { key: GoalCategory | 'all' | 'historicos'; label: string }[] = [
   { key: 'all', label: 'Todos' },
@@ -137,6 +138,7 @@ const COLOR_DOT: Record<string, string> = {
 };
 
 export default function Goals() {
+  const todayKey = getLocalDateString();
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all' | 'historicos'>('daily');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [todayAsignaciones, setTodayAsignaciones] = useState<RutinaAsignacion[]>([]);
@@ -151,12 +153,9 @@ export default function Goals() {
   const [focusParentGoal, setFocusParentGoal] = useState<Goal | null>(null);
   const [allGoalsMapped, setAllGoalsMapped] = useState<Goal[]>([]);
   const [historicSubgoalsLoaded, setHistoricSubgoalsLoaded] = useState(false);
-  const [hiddenGoalIds, setHiddenGoalIds] = useState<Set<string>>(() => {
-    const today = new Date().toLocaleDateString('en-CA');
-    const raw = localStorage.getItem(`hidden_goals_${today}`);
-    return new Set(raw ? JSON.parse(raw) : []);
-  });
-  const [showHidden, setShowHidden] = useState(false);
+  const [skippedGoalIds, setSkippedGoalIds] = useState<Set<string>>(new Set());
+  const [showSkipped, setShowSkipped] = useState(false);
+  const [folders, setFolders] = useState<GoalFolder[]>([]);
 
   // Cargar objetivos del backend
   const loadGoals = async () => {
@@ -214,6 +213,7 @@ export default function Goals() {
                   completedAt: sub.fecha_completado || undefined,
                   priority: undefined, // Los subobjetivos no tienen prioridad en  la tabla subobjetivos
                   focusTimeSeconds: sub.tiempo_focus || 0,
+                  folderId: sub.folder_id ?? undefined,
                 }))
                 .sort((a, b) => {
                   const orderA = subgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
@@ -247,15 +247,21 @@ export default function Goals() {
 
   useEffect(() => {
     loadGoals();
+    goalFoldersAPI.getFolders().then(setFolders).catch(() => {});
   }, []);
 
   useEffect(() => {
-    const today = new Date().toLocaleDateString('en-CA');
-    rutinasAPI.getSemana(today).then(semana => {
-      const diaHoy = semana.find(d => d.fecha === today);
+    goalsAPI.getSkippedGoals(todayKey)
+      .then(ids => setSkippedGoalIds(new Set(ids.map(id => id.toString()))))
+      .catch(error => console.error('Error loading skipped goals:', error));
+  }, [todayKey]);
+
+  useEffect(() => {
+    rutinasAPI.getSemana(todayKey).then(semana => {
+      const diaHoy = semana.find(d => d.fecha === todayKey);
       setTodayAsignaciones(diaHoy?.asignaciones ?? []);
     }).catch(() => {});
-  }, []);
+  }, [todayKey]);
 
   useEffect(() => {
     if (activeTab !== 'historicos' || historicSubgoalsLoaded) return;
@@ -315,13 +321,39 @@ export default function Goals() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const isGoalSkippedToday = (goal: Goal) => goal.recurring && skippedGoalIds.has(goal.id);
+
+  const isGoalApplicableToday = (goal: Goal) => !isGoalSkippedToday(goal);
+
+  const syncRutinaCompletionForGoal = (goalId: string, updatedGoals: Goal[], nextSkippedGoalIds = skippedGoalIds) => {
+    todayAsignaciones.forEach(asig => {
+      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
+      if (rutinaObjIds.length === 0 || !rutinaObjIds.includes(goalId)) return;
+
+      const allDone = rutinaObjIds.every(oid => {
+        const relatedGoal = updatedGoals.find(g => g.id === oid);
+        if (!relatedGoal) return false;
+        return relatedGoal.completed;
+      });
+
+      if (allDone !== asig.completada) {
+        rutinasAPI.updateAsignacion(asig.id, { completada: allDone })
+          .then(updated => setTodayAsignaciones(prev => prev.map(a => a.id === updated.id ? updated : a)))
+          .catch(console.error);
+      }
+    });
+  };
+
   const filtered = activeTab === 'all' ? goals : goals.filter(g => g.category === activeTab);
   const daily = goals.filter(g => g.category === 'daily');
   const weekly = goals.filter(g => g.category === 'weekly');
   const monthly = goals.filter(g => g.category === 'monthly');
   const yearly = goals.filter(g => g.category === 'yearly');
 
-  const completedOf = (arr: typeof goals) => `${arr.filter(g => g.completed).length}/${arr.length}`;
+  const completedOf = (arr: typeof goals) => {
+    const applicableGoals = arr.filter(isGoalApplicableToday);
+    return `${applicableGoals.filter(g => g.completed).length}/${applicableGoals.length}`;
+  };
 
   const handleToggle = (id: string) => {
     const goal = goals.find(g => g.id === id);
@@ -335,22 +367,9 @@ export default function Goals() {
     setAllGoalsMapped(prev => prev.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g));
 
     void persistGoalUpdate(id, { completed: newCompleted, completedAt });
+    syncRutinaCompletionForGoal(id, updatedGoals);
 
     // Auto-completar/descompletar rutinas según estado de sus objetivos
-    todayAsignaciones.forEach(asig => {
-      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
-      if (rutinaObjIds.length === 0 || !rutinaObjIds.includes(id)) return;
-
-      const allDone = rutinaObjIds.every(oid =>
-        oid === id ? newCompleted : (updatedGoals.find(g => g.id === oid)?.completed ?? false)
-      );
-
-      if (allDone !== asig.completada) {
-        rutinasAPI.updateAsignacion(asig.id, { completada: allDone })
-          .then(updated => setTodayAsignaciones(prev => prev.map(a => a.id === updated.id ? updated : a)))
-          .catch(console.error);
-      }
-    });
   };
 
   const persistGoalUpdate = async (goalId: string, updates: { completed: boolean; completedAt?: string }) => {
@@ -474,6 +493,7 @@ export default function Goals() {
                 completado: sub.completed || false,
                 notas: sub.notes || null,
                 orden: index,
+                folder_id: sub.folderId ?? null,
               });
               console.log('✅ SubGoal created in edit:', createdSubGoal.id);
             } catch (createError) {
@@ -487,6 +507,7 @@ export default function Goals() {
             completed: sub.completed,
             focusTimeSeconds: sub.focusTimeSeconds,
             notes: sub.notes,
+            folderId: sub.folderId,
           }, index);
         })
       );
@@ -533,7 +554,8 @@ export default function Goals() {
                 titulo: subGoal.title,
                 completado: subGoal.completed || false,
                 notas: subGoal.notes || null,
-                orden: i, // Guardar el índice como orden
+                orden: i,
+                folder_id: subGoal.folderId ?? null,
               });
               console.log('✅ SubGoal created:', createdSubGoal);
               newSubGoals.push({
@@ -643,6 +665,7 @@ export default function Goals() {
     if (typeof updates.focusTimeSeconds === 'number') payload.tiempo_focus = updates.focusTimeSeconds;
     if (typeof updates.notes === 'string') payload.notas = updates.notes;
     if (typeof orden === 'number') payload.orden = orden;
+    if ('folderId' in updates) payload.folder_id = updates.folderId ?? null;
     if (Object.keys(payload).length === 0) return;
 
     try {
@@ -679,6 +702,7 @@ export default function Goals() {
         completed: sub.completed,
         focusTimeSeconds: sub.focusTimeSeconds,
         notes: sub.notes,
+        folderId: sub.folderId,
       }, index); // Pasar el índice como el nuevo orden
     });
   };
@@ -736,17 +760,37 @@ export default function Goals() {
     void persistSubGoalUpdate(subGoalId, { completed: true });
   };
 
-  const handleHideGoal = (id: string) => {
-    const today = new Date().toLocaleDateString('en-CA');
-    setHiddenGoalIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      localStorage.setItem(`hidden_goals_${today}`, JSON.stringify([...next]));
-      return next;
+  const handleSkipGoalToday = (id: string) => {
+    const goal = goals.find(g => g.id === id);
+    if (!goal?.recurring) return;
+
+    const isCurrentlySkipped = skippedGoalIds.has(id);
+    const next = new Set(skippedGoalIds);
+    if (isCurrentlySkipped) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+
+    setSkippedGoalIds(next);
+    syncRutinaCompletionForGoal(id, goals, next);
+
+    const request = isCurrentlySkipped
+      ? goalsAPI.unskipGoalForDate(id, todayKey)
+      : goalsAPI.skipGoalForDate(id, todayKey);
+
+    void request.catch(error => {
+      console.error('Error toggling skipped goal:', error);
+      setSkippedGoalIds(prev => {
+        const rollback = new Set(prev);
+        if (isCurrentlySkipped) {
+          rollback.add(id);
+        } else {
+          rollback.delete(id);
+        }
+        return rollback;
+      });
+      syncRutinaCompletionForGoal(id, goals, skippedGoalIds);
     });
   };
 
@@ -777,12 +821,12 @@ export default function Goals() {
     }
   };
 
-  const visibleGoals = showHidden
+  const visibleGoals = showSkipped
     ? filtered
-    : filtered.filter(g => !hiddenGoalIds.has(g.id));
+    : filtered.filter(g => !isGoalSkippedToday(g));
 
   const sorted = [...visibleGoals].sort((a, b) => {
-    if (hiddenGoalIds.has(a.id) !== hiddenGoalIds.has(b.id)) return hiddenGoalIds.has(a.id) ? 1 : -1;
+    if (isGoalSkippedToday(a) !== isGoalSkippedToday(b)) return isGoalSkippedToday(a) ? 1 : -1;
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
     if (a.priority !== b.priority) {
       const order = { high: 0, medium: 1, low: 2 };
@@ -791,7 +835,27 @@ export default function Goals() {
     return 0;
   });
 
-  const hiddenInCurrentTab = filtered.filter(g => hiddenGoalIds.has(g.id)).length;
+  const skippedInCurrentTab = filtered.filter(isGoalSkippedToday).length;
+
+  useEffect(() => {
+    if (todayAsignaciones.length === 0 || goals.length === 0) return;
+    todayAsignaciones.forEach(asig => {
+      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
+      if (rutinaObjIds.length === 0) return;
+
+      const allDone = rutinaObjIds.every(oid => {
+        const relatedGoal = goals.find(g => g.id === oid);
+        if (!relatedGoal) return false;
+        return relatedGoal.completed;
+      });
+
+      if (allDone !== asig.completada) {
+        rutinasAPI.updateAsignacion(asig.id, { completada: allDone })
+          .then(updated => setTodayAsignaciones(prev => prev.map(a => a.id === updated.id ? updated : a)))
+          .catch(console.error);
+      }
+    });
+  }, [todayAsignaciones, goals, skippedGoalIds]);
 
   const currentGoalIds = new Set(goals.map(g => g.id));
   const historicFiltered = allGoalsMapped
@@ -856,18 +920,18 @@ export default function Goals() {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {hiddenInCurrentTab > 0 && (
+          {skippedInCurrentTab > 0 && (
             <button
-              onClick={() => setShowHidden(v => !v)}
+              onClick={() => setShowSkipped(v => !v)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                showHidden
+                showSkipped
                   ? 'bg-accent text-foreground'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
-              title={showHidden ? 'Ocultar los ocultos' : `Mostrar ${hiddenInCurrentTab} oculto${hiddenInCurrentTab > 1 ? 's' : ''}`}
+              title={showSkipped ? 'Ocultar los saltados' : `Mostrar ${skippedInCurrentTab} saltado${skippedInCurrentTab > 1 ? 's' : ''}`}
             >
-              {showHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              {hiddenInCurrentTab}
+              {showSkipped ? <Eye className="h-3.5 w-3.5" /> : <SkipForward className="h-3.5 w-3.5" />}
+              {skippedInCurrentTab}
             </button>
           )}
           <button
@@ -908,13 +972,14 @@ export default function Goals() {
 
           const goalCardProps = (goal: Goal) => ({
             goal,
-            isHidden: hiddenGoalIds.has(goal.id),
+            isSkipped: isGoalSkippedToday(goal),
+            folders,
             onToggle: handleToggle,
             onEdit: handleEdit,
             onFocusGoal: handleOpenGoalFocus,
             onDelete: handleDeleteGoal,
             onToggleSubGoal: handleToggleSubGoal,
-            onHide: handleHideGoal,
+            onSkipToday: handleSkipGoalToday,
           });
 
           return (
@@ -988,6 +1053,7 @@ export default function Goals() {
                       <GoalCard
                         key={goal.id}
                         goal={goal}
+                        folders={folders}
                         onToggle={handleToggle}
                         onEdit={handleEdit}
                         onFocusGoal={handleOpenGoalFocus}
@@ -1009,6 +1075,8 @@ export default function Goals() {
         onOpenChange={setModalOpen}
         goal={editingGoal}
         goals={goals}
+        folders={folders}
+        onFoldersChange={setFolders}
         onSave={handleSave}
       />
 
@@ -1016,6 +1084,8 @@ export default function Goals() {
         open={goalFocusOpen}
         onOpenChange={setGoalFocusOpen}
         goal={focusGoal}
+        folders={folders}
+        onFoldersChange={setFolders}
         onSave={handleSaveGoalFocusProgress}
         onComplete={handleCompleteGoalFromFocus}
         onOpenSubGoalFocus={handleOpenSubGoalFocusFromGoal}
@@ -1043,6 +1113,7 @@ export default function Goals() {
                   completedAt: sub.fecha_completado || undefined,
                   priority: undefined,
                   focusTimeSeconds: sub.tiempo_focus || 0,
+                  folderId: sub.folder_id ?? undefined,
                 }))
                 .sort((a, b) => {
                   const orderA = subgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;

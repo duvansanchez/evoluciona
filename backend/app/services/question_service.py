@@ -4,7 +4,7 @@ Servicios para preguntas y sesiones diarias.
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text, or_
-from app.models.models import Question, QuestionResponse, QuestionOption, DailyQuestionsSession
+from app.models.models import Question, QuestionResponse, QuestionOption, DailyQuestionsSession, QuestionSkipDay
 from app.schemas.schemas import QuestionCreate, QuestionUpdate
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -174,6 +174,10 @@ class DailySessionService:
         # Upsert por pregunta: borrar sólo la de ese question_id y reinsertar
         for response_data in session_data.responses:
             db.execute(
+                text("DELETE FROM question_skip_days WHERE question_id = :qid AND fecha = :d"),
+                {"qid": int(response_data.question_id), "d": date}
+            )
+            db.execute(
                 text("DELETE FROM response WHERE question_id = :qid AND CAST(date AS DATE) = :d"),
                 {"qid": int(response_data.question_id), "d": date}
             )
@@ -213,6 +217,10 @@ class DailySessionService:
 
         # Eliminar respuesta previa de esta pregunta en este día
         db.execute(
+            text("DELETE FROM question_skip_days WHERE question_id = :qid AND fecha = :d"),
+            {"qid": int(question_id), "d": date}
+        )
+        db.execute(
             text("DELETE FROM response WHERE question_id = :qid AND CAST(date AS DATE) = :d"),
             {"qid": int(question_id), "d": date}
         )
@@ -238,3 +246,148 @@ class DailySessionService:
         return db.query(Question).filter(
             Question.active == True
         ).order_by(Question.order).all()
+
+    @staticmethod
+    def get_feedbacks_for_date(db: Session, date: str) -> List[dict]:
+        """Obtener feedbacks guardados para una fecha."""
+        rows = db.execute(
+            text("""
+                SELECT id, question_id, fecha, texto, fecha_creacion, fecha_actualizacion
+                FROM question_feedback
+                WHERE fecha = :d
+                ORDER BY question_id ASC, id DESC
+            """),
+            {"d": date}
+        ).fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "question_id": str(row[1]),
+                "date": row[2],
+                "text": row[3] or "",
+                "created_at": row[4].isoformat() if row[4] else None,
+                "updated_at": row[5].isoformat() if row[5] else None,
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def save_question_feedback(db: Session, date: str, question_id: str, feedback_text: str) -> dict:
+        """Crear o actualizar feedback de una pregunta para una fecha."""
+        now = datetime.utcnow()
+        cleaned_text = (feedback_text or "").strip()
+        if not cleaned_text:
+            raise ValueError("El feedback no puede estar vacío")
+
+        exists = db.execute(
+            text("""
+                SELECT id
+                FROM question_feedback
+                WHERE question_id = :qid AND fecha = :d
+            """),
+            {"qid": int(question_id), "d": date}
+        ).fetchone()
+
+        if exists:
+            db.execute(
+                text("""
+                    UPDATE question_feedback
+                    SET texto = :text, fecha_actualizacion = :updated
+                    WHERE id = :id
+                """),
+                {"text": cleaned_text, "updated": now, "id": exists[0]}
+            )
+        else:
+            db.execute(
+                text("""
+                    INSERT INTO question_feedback (question_id, fecha, texto, fecha_creacion, fecha_actualizacion)
+                    VALUES (:qid, :fecha, :texto, :created, :updated)
+                """),
+                {
+                    "qid": int(question_id),
+                    "fecha": date,
+                    "texto": cleaned_text,
+                    "created": now,
+                    "updated": now,
+                }
+            )
+
+        db.commit()
+
+        row = db.execute(
+            text("""
+                SELECT TOP 1 id, question_id, fecha, texto, fecha_creacion, fecha_actualizacion
+                FROM question_feedback
+                WHERE question_id = :qid AND fecha = :d
+                ORDER BY id DESC
+            """),
+            {"qid": int(question_id), "d": date}
+        ).fetchone()
+
+        return {
+            "id": row[0],
+            "question_id": str(row[1]),
+            "date": row[2],
+            "text": row[3] or "",
+            "created_at": row[4].isoformat() if row[4] else None,
+            "updated_at": row[5].isoformat() if row[5] else None,
+        }
+
+    @staticmethod
+    def delete_question_feedback(db: Session, date: str, question_id: str) -> None:
+        """Eliminar feedback de una pregunta para una fecha."""
+        db.execute(
+            text("DELETE FROM question_feedback WHERE question_id = :qid AND fecha = :d"),
+            {"qid": int(question_id), "d": date}
+        )
+        db.commit()
+
+    @staticmethod
+    def get_skipped_question_ids(db: Session, fecha: str) -> List[int]:
+        """Obtener IDs de preguntas saltadas para una fecha."""
+        rows = db.query(QuestionSkipDay.question_id).filter(QuestionSkipDay.fecha == fecha).all()
+        return [row[0] for row in rows]
+
+    @staticmethod
+    def skip_question_for_date(db: Session, question_id: int, fecha: str) -> Optional[QuestionSkipDay]:
+        """Persistir que una pregunta fue saltada en una fecha."""
+        question = db.query(Question).filter(Question.id == question_id, Question.active == True).first()
+        if not question:
+            return None
+
+        existing = db.query(QuestionSkipDay).filter(
+            QuestionSkipDay.question_id == question_id,
+            QuestionSkipDay.fecha == fecha,
+        ).first()
+        if existing:
+            return existing
+
+        db.execute(
+            text("DELETE FROM response WHERE question_id = :qid AND CAST(date AS DATE) = :d"),
+            {"qid": question_id, "d": fecha}
+        )
+
+        skip_day = QuestionSkipDay(
+            question_id=question_id,
+            fecha=fecha,
+            fecha_creacion=datetime.now(),
+        )
+        db.add(skip_day)
+        db.commit()
+        db.refresh(skip_day)
+        return skip_day
+
+    @staticmethod
+    def unskip_question_for_date(db: Session, question_id: int, fecha: str) -> bool:
+        """Quitar el estado de saltado de una pregunta para una fecha."""
+        existing = db.query(QuestionSkipDay).filter(
+            QuestionSkipDay.question_id == question_id,
+            QuestionSkipDay.fecha == fecha,
+        ).first()
+        if not existing:
+            return False
+
+        db.delete(existing)
+        db.commit()
+        return True

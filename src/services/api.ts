@@ -22,6 +22,28 @@ export const goalsAPI = {
     if (!response.ok) throw new Error('Error fetching goals');
     return response.json() as Promise<PaginatedResponse<any>>;
   },
+
+  getSkippedGoals: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/skips?fecha=${date}`);
+    if (!response.ok) throw new Error('Error fetching skipped goals');
+    return response.json() as Promise<number[]>;
+  },
+
+  skipGoalForDate: async (goalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Error skipping goal for date');
+    return response.json();
+  },
+
+  unskipGoalForDate: async (goalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error removing skipped goal for date');
+    return response.json();
+  },
   
   createGoal: async (goalData: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE_URL}/goals`, {
@@ -237,6 +259,56 @@ export const phrasesAPI = {
     if (!response.ok) throw new Error('Error deleting subcategory');
     return response.json();
   },
+
+  reviewPhrase: async (phraseId: number | string, payload?: { review_plan_id?: number; session_label?: string }) => {
+    const response = await fetch(`${API_BASE_URL}/phrases/${phraseId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload ?? {}),
+    });
+    if (!response.ok) throw new Error('Error reviewing phrase');
+    return response.json();
+  },
+
+  getReviewLogs: async (
+    page = 1,
+    page_size = 50,
+    startDate?: string,
+    endDate?: string,
+    reviewPlanId?: number,
+  ) => {
+    let url = `${API_BASE_URL}/phrases/review-logs?page=${page}&page_size=${page_size}`;
+    if (startDate) url += `&start_date=${startDate}`;
+    if (endDate) url += `&end_date=${endDate}`;
+    if (typeof reviewPlanId === 'number') url += `&review_plan_id=${reviewPlanId}`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Error fetching phrase review logs');
+    return response.json() as Promise<PaginatedResponse<any>>;
+  },
+
+  getReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
+    let url = `${API_BASE_URL}/phrases/report?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Error fetching phrase report');
+    return response.json() as Promise<PhraseReportData>;
+  },
+
+  sendReportEmail: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
+    let url = `${API_BASE_URL}/phrases/report/send-email?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error sending phrase report email');
+    }
+    return response.json();
+  },
 };
 
 /**
@@ -316,6 +388,60 @@ export const questionsAPI = {
     if (!r.ok) throw new Error('Error fetching history');
     return r.json();
   },
+  getQuestionFeedbacks: async (date: string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/feedbacks`);
+    if (!r.ok) throw new Error('Error fetching question feedbacks');
+    return r.json();
+  },
+  saveQuestionFeedback: async (date: string, questionId: string, text: string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/feedbacks/${questionId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error saving question feedback');
+    }
+    return r.json();
+  },
+  deleteQuestionFeedback: async (date: string, questionId: string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/feedbacks/${questionId}`, {
+      method: 'DELETE',
+    });
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error deleting question feedback');
+    }
+    return r.json();
+  },
+  getSkippedQuestions: async (date: string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/skips`);
+    if (!r.ok) throw new Error('Error fetching skipped questions');
+    return r.json() as Promise<number[]>;
+  },
+  skipQuestionForDate: async (date: string, questionId: number | string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/skips/${questionId}`, {
+      method: 'POST',
+    });
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error skipping question for date');
+    }
+    return r.json();
+  },
+  unskipQuestionForDate: async (date: string, questionId: number | string) => {
+    const r = await fetch(`${API_BASE_URL}/daily-sessions/${date}/skips/${questionId}`, {
+      method: 'DELETE',
+    });
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error removing skipped question for date');
+    }
+    return r.json();
+  },
 };
 
 /**
@@ -371,7 +497,73 @@ export const reportsAPI = {
     }
     return response.json();
   },
+  sendCurrentMonthReport: async () => {
+    const response = await fetch(`${API_BASE_URL}/reports/send-current-month`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error sending current month report');
+    }
+    return response.json();
+  },
+  sendPreviousMonthReport: async () => {
+    const response = await fetch(`${API_BASE_URL}/reports/send-monthly`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error sending previous month report');
+    }
+    return response.json();
+  },
 };
+
+export interface PhraseReportPhraseItem {
+  id: number;
+  text: string;
+  author?: string | null;
+  category_name?: string;
+  count?: number;
+  last_reviewed_at?: string | null;
+  days_since_last_review?: number | null;
+}
+
+export interface PhraseReportCountItem {
+  category_name?: string;
+  name?: string;
+  count: number;
+}
+
+export interface PhraseReportDayItem {
+  date: string;
+  count: number;
+}
+
+export interface PhraseReportData {
+  mode: 'weekly' | 'monthly';
+  period_start: string;
+  period_end: string;
+  period_label: string;
+  total_reviews: number;
+  days_with_review: number;
+  top_phrases: PhraseReportPhraseItem[];
+  unreviewed_phrases: PhraseReportPhraseItem[];
+  category_usage: PhraseReportCountItem[];
+  daily_distribution: PhraseReportDayItem[];
+  streaks: {
+    current: number;
+    max: number;
+  };
+  plans_used: PhraseReportCountItem[];
+  excluded_phrases: PhraseReportPhraseItem[];
+  ignored_phrases: PhraseReportPhraseItem[];
+  coverage: {
+    active_phrases: number;
+    reviewed_active_phrases: number;
+    percent: number;
+  };
+}
 
 export interface ReviewPlanConfig {
   shuffle: boolean;
@@ -622,6 +814,39 @@ export const statsAPI = {
     const r = await fetch(`${API_BASE_URL}/stats/dashboard`);
     if (!r.ok) throw new Error('Error fetching dashboard');
     return r.json();
+  },
+};
+
+/**
+ * Goal Folders API
+ */
+export const goalFoldersAPI = {
+  getFolders: async () => {
+    const response = await fetch(`${API_BASE_URL}/goal-folders`);
+    if (!response.ok) throw new Error('Error fetching folders');
+    return response.json();
+  },
+  createFolder: async (data: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/goal-folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Error creating folder');
+    return response.json();
+  },
+  updateFolder: async (id: number, data: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE_URL}/goal-folders/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Error updating folder');
+    return response.json();
+  },
+  deleteFolder: async (id: number) => {
+    const response = await fetch(`${API_BASE_URL}/goal-folders/${id}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Error deleting folder');
   },
 };
 

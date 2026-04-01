@@ -90,6 +90,7 @@ class GoalResponse(BaseModel):
     tiempo_focus: Optional[int] = None
     fecha_programada: Optional[datetime] = None
     programado_para: Optional[str] = None
+    saltado_hoy: bool = False
     
     class Config:
         from_attributes = True
@@ -215,6 +216,28 @@ class PhraseResponse(BaseModel):
         }
 
 
+class PhraseReviewCreate(BaseModel):
+    """Registrar un repaso de frase."""
+    review_plan_id: Optional[int] = None
+    session_label: Optional[str] = None
+
+
+class PhraseReviewLogResponse(BaseModel):
+    """Respuesta de log de repaso de frase."""
+    id: int
+    phrase_id: int
+    review_plan_id: Optional[int] = None
+    session_label: Optional[str] = None
+    review_date: str
+    reviewed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
 # ==================== QUESTIONS ====================
 
 class QuestionBase(BaseModel):
@@ -276,6 +299,30 @@ class QuestionResponseCreate(BaseModel):
 class SingleResponseCreate(BaseModel):
     """Crear/actualizar una sola respuesta a una pregunta."""
     response: str
+
+
+class QuestionFeedbackCreate(BaseModel):
+    """Crear o actualizar feedback de una pregunta para una fecha."""
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+class QuestionFeedbackResponse(BaseModel):
+    """Respuesta de feedback de pregunta."""
+    id: int
+    question_id: str
+    date: str
+    text: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class QuestionSkipDayResponse(BaseModel):
+    """Respuesta de pregunta saltada para una fecha."""
+    question_id: str
+    date: str
 
 
 class QuestionResponseData(BaseModel):
@@ -462,6 +509,11 @@ class GoalsPaginatedResponse(BaseModel):
     page_size: int
     pages: int
     items: List[GoalResponse]
+
+
+class GoalSkipDayResponse(BaseModel):
+    goal_id: int
+    fecha: str
 
 
 class PhrasesPaginatedResponse(BaseModel):

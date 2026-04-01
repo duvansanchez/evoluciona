@@ -229,7 +229,7 @@ def sync_reminder_jobs() -> None:
         if cfg["enabled"]:
             scheduler.add_job(
                 lambda p=parte: send_reminder(p),
-                CronTrigger(hour=cfg["hour"], minute=cfg["minute"]),
+                CronTrigger(hour=cfg["hour"], minute=cfg["minute"], timezone="America/Bogota"),
                 id=job_id,
                 replace_existing=True,
             )

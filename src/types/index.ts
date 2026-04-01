@@ -2,6 +2,13 @@ export type GoalCategory = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'general'
 export type GoalPriority = 'high' | 'medium' | 'low';
 export type DayPart = 'morning' | 'afternoon' | 'evening' | 'none';
 
+export interface GoalFolder {
+  id: number;
+  nombre: string;
+  icono?: string;
+  color?: string;
+}
+
 export interface SubGoal {
   id: string;
   title: string;
@@ -10,6 +17,7 @@ export interface SubGoal {
   completedAt?: string;
   priority?: GoalPriority;
   focusTimeSeconds?: number; // Tiempo acumulado en modo focus
+  folderId?: number;
 }
 
 export interface Goal {
@@ -91,6 +99,7 @@ export interface Question {
   assignedToUsers?: string[]; // IDs de usuarios (para futuro)
   createdAt: string;
   updatedAt?: string;
+  skipped?: boolean;
 }
 
 export interface QuestionResponse {
@@ -110,4 +119,13 @@ export interface DailyQuestionsSession {
   completedAt?: string;
   totalQuestions: number;
   answeredQuestions: number;
+}
+
+export interface QuestionFeedback {
+  id: string;
+  questionId: string;
+  date: string;
+  text: string;
+  createdAt?: string;
+  updatedAt?: string;
 }

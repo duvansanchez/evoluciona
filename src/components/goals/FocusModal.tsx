@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
-import { CheckCircle2, Pause, Play, RotateCcw, Save, X, Bold, Italic, List, ListChecks, Code, Heading1, Heading2, Heading3, Minus, Pencil, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Pause, Play, RotateCcw, X, Bold, Italic, List, ListChecks, Code, Heading1, Heading2, Heading3, Minus, Pencil, ChevronRight } from 'lucide-react';
 import type { SubGoal, Goal } from '../../types';
 import { renderMarkdownPreview } from '@/utils/markdownPreview';
 
@@ -28,6 +28,7 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
   const autoSaveRef = useRef<number | null>(null);
   const notesTimeoutRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorDialogRef = useRef<HTMLDivElement>(null);
   const prevOpenRef = useRef(open);
 
   // Cargar datos del subobjetivo
@@ -191,10 +192,19 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
     if (save) {
       setNotes(editDraft);
       setHasUnsavedChanges(true);
+      handleSave(false, editDraft);
     }
     setIsEditingNotes(false);
     setHeadingMenuOpen(false);
     setColorMenuOpen(false);
+  };
+
+  const handleEditorBlur = () => {
+    window.setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (editorDialogRef.current?.contains(activeElement)) return;
+      closeEditor(true);
+    }, 0);
   };
 
   // Editor de notas - funciones de formato (operan sobre editDraft)
@@ -407,13 +417,6 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
                   Cambios sin guardar
                 </span>
               )}
-              <button
-                onClick={() => handleSave(true)}
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
-              >
-                <Save className="h-4 w-4" />
-                Guardar
-              </button>
             </div>
           </div>
         </div>
@@ -512,23 +515,16 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
           {isEditingNotes && (
             <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => closeEditor(true)} />
-              <div className="relative w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl flex flex-col h-[88vh]">
+              <div ref={editorDialogRef} className="relative w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl flex flex-col h-[88vh]">
                 {/* Dialog header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
                   <span className="text-sm font-semibold text-foreground">Editar notas</span>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => closeEditor(false)}
+                      onClick={() => closeEditor(true)}
                       className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
                     >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={() => closeEditor(true)}
-                      className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                    >
-                      <Save className="h-3.5 w-3.5" />
-                      Guardar
+                      Cerrar
                     </button>
                   </div>
                 </div>
@@ -592,6 +588,7 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
                   ref={textareaRef}
                   value={editDraft}
                   onChange={e => setEditDraft(e.target.value)}
+                  onBlur={handleEditorBlur}
                   onKeyDown={handleNotesKeyDown}
                   placeholder="Escribe tus notas, ideas o reflexiones..."
                   className="flex-1 min-h-0 w-full px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none bg-transparent overflow-y-auto"

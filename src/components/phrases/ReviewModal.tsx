@@ -8,7 +8,7 @@ interface ReviewModalProps {
   onOpenChange: (open: boolean) => void;
   phrases: Phrase[];
   categories: PhraseCategory[];
-  onReview: (id: string) => void;
+  onReview: (id: string) => Promise<void> | void;
   onEdit: (id: string, formData: any) => void;
   sessionLabel?: string;
 }
@@ -18,6 +18,7 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
   const [showNotes, setShowNotes] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [badgePopKey, setBadgePopKey] = useState(0);
+  const [savingReview, setSavingReview] = useState(false);
   const prevCategoryRef = useRef<{ categoryId: string | undefined; subcategoryId: string | undefined } | null>(null);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
       if (showEditModal) return;
       if (e.key === 'ArrowRight') handleNext();
       else if (e.key === 'ArrowLeft') handlePrevious();
-      else if (e.key === 'Enter') handleMarkAsReviewed();
+      else if (e.key === 'Enter') void handleMarkAsReviewed();
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -72,13 +73,19 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
     }
   };
 
-  const handleMarkAsReviewed = () => {
-    onReview(currentPhrase.id);
-    if (currentIndex < phrases.length - 1) {
-      handleNext();
-    } else {
-      onOpenChange(false);
-      setCurrentIndex(0);
+  const handleMarkAsReviewed = async () => {
+    if (savingReview) return;
+    try {
+      setSavingReview(true);
+      await onReview(currentPhrase.id);
+      if (currentIndex < phrases.length - 1) {
+        handleNext();
+      } else {
+        onOpenChange(false);
+        setCurrentIndex(0);
+      }
+    } finally {
+      setSavingReview(false);
     }
   };
 
@@ -224,7 +231,8 @@ export default function ReviewModal({ open, onOpenChange, phrases, categories, o
 
             <button
               onClick={handleMarkAsReviewed}
-              className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg"
+              disabled={savingReview}
+              className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {currentIndex < phrases.length - 1 ? '✓ Repasada' : '✓ Finalizar Repaso'}
             </button>

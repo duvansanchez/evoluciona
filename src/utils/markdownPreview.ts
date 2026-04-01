@@ -91,6 +91,7 @@ function processLine(line: string): string {
   const leadingSpaces = leadingSpacesMatch ? leadingSpacesMatch[1].length : 0;
   const indentLevel = Math.floor(leadingSpaces / 2);
   const indentStyle = indentLevel > 0 ? ` style="margin-left:${indentLevel}rem"` : '';
+  const itemIndentClass = indentLevel > 0 ? '' : ' pl-0.5';
 
   if (processed.trim() === '---' || processed.trim() === '***' || processed.trim() === '___') {
     return '<hr class="my-2 border-t border-border" />';
@@ -105,14 +106,14 @@ function processLine(line: string): string {
     if (match) {
       let formatted = (match[1] || '').replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>').replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
       formatted = processHighlights(formatted);
-      return `<div class="flex items-center gap-2 mb-0.5"${indentStyle}><input type="checkbox" checked disabled class="rounded border-gray-400 w-4 h-4" /><span class="line-through text-muted-foreground">${formatted || '&nbsp;'}</span></div>`;
+      return `<div class="flex items-start gap-2 mb-1${itemIndentClass}"${indentStyle}><input type="checkbox" checked disabled class="mt-0.5 shrink-0 rounded border-gray-400 w-4 h-4" /><span class="min-w-0 line-through text-muted-foreground">${formatted || '&nbsp;'}</span></div>`;
     }
   } else if (processed.match(/^\s*\-\s*\[\s*\]\s*(.*)$/)) {
     const match = processed.match(/^\s*\-\s*\[\s*\]\s*(.*)$/);
     if (match) {
       let formatted = (match[1] || '').replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold">$1</strong>').replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
       formatted = processHighlights(formatted);
-      return `<div class="flex items-center gap-2 mb-0.5"${indentStyle}><input type="checkbox" disabled class="rounded border-gray-400 w-4 h-4" /><span>${formatted || '&nbsp;'}</span></div>`;
+      return `<div class="flex items-start gap-2 mb-1${itemIndentClass}"${indentStyle}><input type="checkbox" disabled class="mt-0.5 shrink-0 rounded border-gray-400 w-4 h-4" /><span class="min-w-0">${formatted || '&nbsp;'}</span></div>`;
     }
   } else if (processed.match(/^\s*\-\s+(.*)$/)) {
     const match = processed.match(/^\s*\-\s+(.*)$/);
@@ -147,11 +148,11 @@ export function renderMarkdownPreview(text: string): string {
       block: true,
       html:
         `<details class="group rounded-lg border border-border/60 overflow-hidden">` +
-        `<summary class="cursor-pointer list-none flex items-center gap-2 px-3 py-2 text-sm font-medium text-foreground hover:bg-accent/50 select-none">` +
+        `<summary class="cursor-pointer list-none flex items-start gap-2 py-2 pr-3 pl-0.5 text-sm font-medium text-foreground hover:bg-accent/50 select-none [&>span:first-child]:mt-0.5 [&>span:first-child]:inline-flex [&>span:first-child]:h-4 [&>span:first-child]:w-4 [&>span:first-child]:shrink-0 [&>span:first-child]:items-center [&>span:first-child]:justify-center">` +
         `<span class="inline-block transition-transform duration-150 group-open:rotate-90 text-muted-foreground" style="font-size:0.6rem">▶</span>` +
-        `${processHighlights(toggleTitle)}` +
+        `<span class="min-w-0">${processHighlights(toggleTitle)}</span>` +
         `</summary>` +
-        `<div class="px-4 py-2 text-sm border-t border-border/40 bg-muted/20">${bodyContent}</div>` +
+        `<div class="px-6 py-2 text-sm border-t border-border/40 bg-muted/20">${bodyContent}</div>` +
         `</details>`,
     });
     inToggle = false;
