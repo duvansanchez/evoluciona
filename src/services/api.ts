@@ -309,6 +309,30 @@ export const phrasesAPI = {
     }
     return response.json();
   },
+
+  getAudioStatus: async () => {
+    const response = await fetch(`${API_BASE_URL}/phrases/audio/status`);
+    if (!response.ok) throw new Error('Error fetching phrase audio status');
+    return response.json() as Promise<PhraseAudioStatus>;
+  },
+
+  generateAudio: async (text: string) => {
+    const response = await fetch(`${API_BASE_URL}/phrases/audio/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      try {
+        const errorData = JSON.parse(errorText);
+        throw new Error(errorData.detail || errorText || 'Error generating phrase audio');
+      } catch {
+        throw new Error(errorText || 'Error generating phrase audio');
+      }
+    }
+    return response.blob();
+  },
 };
 
 /**
@@ -563,6 +587,14 @@ export interface PhraseReportData {
     reviewed_active_phrases: number;
     percent: number;
   };
+}
+
+export interface PhraseAudioStatus {
+  enabled: boolean;
+  provider: 'browser' | 'elevenlabs';
+  voice_id?: string | null;
+  voice_name?: string | null;
+  model_id?: string | null;
 }
 
 export interface ReviewPlanConfig {

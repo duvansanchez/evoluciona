@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     GMAIL_USER: str = ""
     GMAIL_APP_PASSWORD: str = ""
     REPORT_RECIPIENT: str = ""  # Puede ser el mismo GMAIL_USER
+
+    # ElevenLabs TTS
+    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_VOICE_ID: str = ""
+    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
     
     class Config:
         env_file = ".env"

@@ -3,6 +3,8 @@ Endpoints para frases (Phrases y Categories).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import (
@@ -17,6 +19,11 @@ from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService, build_phrase_report
 )
 from app.services.email_service import build_html_phrase_report, send_weekly_report
+from app.services.elevenlabs_service import (
+    ElevenLabsServiceError,
+    get_tts_status,
+    synthesize_text,
+)
 from app.services.report_scheduler_service import record_report_event
 from app.models.models import ReviewPlan, Phrase as PhraseModel
 from sqlalchemy import or_, and_
@@ -28,6 +35,10 @@ from datetime import datetime, date
 DOMAIN_CAP = 30  # repasos necesarios para considerar una frase al 100% dominada
 
 router = APIRouter(prefix="/api/phrases", tags=["phrases"])
+
+
+class PhraseAudioRequest(BaseModel):
+    text: str
 
 
 # ==================== PHRASE CATEGORIES ====================
@@ -319,6 +330,27 @@ def get_phrase_report(
             raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
 
     return build_phrase_report(db, normalized_mode, parsed_reference)
+
+
+@router.get("/audio/status", response_model=dict)
+def get_phrase_audio_status():
+    """Retorna el proveedor de audio disponible para el repaso auditivo."""
+    return get_tts_status()
+
+
+@router.post("/audio/generate")
+def generate_phrase_audio(payload: PhraseAudioRequest):
+    """Genera audio MP3 de una frase usando ElevenLabs cuando este configurado."""
+    try:
+        audio_bytes = synthesize_text(payload.text)
+    except ElevenLabsServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        iter([audio_bytes]),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": 'inline; filename="phrase-audio.mp3"'},
+    )
 
 
 @router.post("/report/send-email", response_model=dict)

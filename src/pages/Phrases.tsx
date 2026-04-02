@@ -17,6 +17,7 @@ import {
   Settings,
   Settings2,
   Target,
+  Volume2,
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -153,6 +154,7 @@ export default function Phrases() {
   const [reviewPhrases, setReviewPhrases] = useState<Phrase[]>([]);
   const [reviewSessionLabel, setReviewSessionLabel] = useState('Todas');
   const [reviewSessionPlanId, setReviewSessionPlanId] = useState<number | undefined>(undefined);
+  const [reviewSessionAudioMode, setReviewSessionAudioMode] = useState<'off' | 'manual' | 'continuous'>('off');
   const [reviewPlans, setReviewPlans] = useState<ReviewPlan[]>([]);
   const [reportMode, setReportMode] = useState<'weekly' | 'monthly'>('weekly');
   const [reportReferenceDate, setReportReferenceDate] = useState(getTodayIso);
@@ -415,10 +417,16 @@ export default function Phrases() {
     return Array.from(byId.values());
   };
 
-  const openReviewSession = (items: Phrase[], label: string, planId?: number) => {
+  const openReviewSession = (
+    items: Phrase[],
+    label: string,
+    planId?: number,
+    audioMode: 'off' | 'manual' | 'continuous' = 'off',
+  ) => {
     setReviewPhrases(items);
     setReviewSessionLabel(label);
     setReviewSessionPlanId(planId);
+    setReviewSessionAudioMode(audioMode);
     setShowReviewModal(true);
   };
 
@@ -447,7 +455,7 @@ export default function Phrases() {
     openReviewSession(allActive, label);
   };
 
-  const handleStartStudyReview = async (plan: ReviewPlan) => {
+  const handleStartStudyReview = async (plan: ReviewPlan, audioMode: 'off' | 'manual' | 'continuous' = 'off') => {
     let selected = await fetchAllActiveForTargets(plan.targets);
 
     if (selected.length === 0) {
@@ -478,7 +486,7 @@ export default function Phrases() {
       return;
     }
 
-    openReviewSession(selected, `Planificación: ${plan.name}`, plan.id);
+    openReviewSession(selected, `Planificación: ${plan.name}`, plan.id, audioMode);
   };
 
   const handleSavePlanConfig = async (planId: number, config: ReviewPlanConfig) => {
@@ -512,7 +520,7 @@ export default function Phrases() {
     }
   };
 
-  const handleRunDraftPlan = () => {
+  const handleRunDraftPlan = (audioMode: 'off' | 'manual' | 'continuous' = 'off') => {
     if (selectedPlanTargets.length === 0) {
       alert('Selecciona una o más categorías/subcategorías para iniciar el repaso.');
       return;
@@ -524,7 +532,7 @@ export default function Phrases() {
       targets: selectedPlanTargets,
     };
 
-    handleStartStudyReview(draftPlan);
+    handleStartStudyReview(draftPlan, audioMode);
   };
 
   const handleDeleteReviewPlan = async (id: number) => {
@@ -1183,12 +1191,20 @@ export default function Phrases() {
 
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={handleRunDraftPlan}
+            onClick={() => handleRunDraftPlan()}
             disabled={selectedPlanTargets.length === 0}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             <RefreshCw className="h-4 w-4" />
             Iniciar repaso combinado
+          </button>
+          <button
+            onClick={() => handleRunDraftPlan('continuous')}
+            disabled={selectedPlanTargets.length === 0}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            <Volume2 className="h-4 w-4" />
+            Audio corrido
           </button>
           <button
             onClick={handleCreateReviewPlan}
@@ -1216,6 +1232,13 @@ export default function Phrases() {
                     className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
                   >
                     Repasar
+                  </button>
+                  <button
+                    onClick={() => handleStartStudyReview(plan, 'continuous')}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Volume2 className="h-3.5 w-3.5" />
+                    Audio
                   </button>
                   <button
                     onClick={() => setConfiguringPlan(plan)}
@@ -1292,6 +1315,7 @@ export default function Phrases() {
         onReview={handleReview}
         onEdit={handleEditFromReview}
         sessionLabel={reviewSessionLabel}
+        initialAudioMode={reviewSessionAudioMode}
       />
 
       {/* Random Phrase Modal */}
