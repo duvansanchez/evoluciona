@@ -3,6 +3,7 @@ Configuración centralizada de la aplicación.
 """
 
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 
 
@@ -27,9 +28,24 @@ class Settings(BaseSettings):
     REPORT_RECIPIENT: str = ""  # Puede ser el mismo GMAIL_USER
 
     # ElevenLabs TTS
+    TTS_PROVIDER: str = "edge"
+    EDGE_TTS_VOICE: str = "es-CO-GonzaloNeural"
     ELEVENLABS_API_KEY: str = ""
     ELEVENLABS_VOICE_ID: str = ""
     ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_value(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on", "debug"}:
+                return True
+            if normalized in {"false", "0", "no", "off", "release", "prod", "production"}:
+                return False
+        return value
     
     class Config:
         env_file = ".env"

@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Square, Volume2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Settings2, Square, X } from 'lucide-react';
 import type { Phrase, PhraseCategory } from '../../types';
 import PhraseModal from './PhraseModal';
 import { phrasesAPI } from '@/services/api';
 
-const AUDIO_VOICE_STORAGE_KEY = 'evoluciona_phrase_audio_voice';
+const DEFAULT_AUDIO_RATE = 1;
+const DEFAULT_AUDIO_PITCH = 1;
+const DEFAULT_AUDIO_PAUSE_MS = 700;
 
 interface ReviewModalProps {
   open: boolean;
@@ -33,15 +35,19 @@ export default function ReviewModal({
   const [badgePopKey, setBadgePopKey] = useState(0);
   const [savingReview, setSavingReview] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [audioProvider, setAudioProvider] = useState<'browser' | 'elevenlabs'>('browser');
-  const [elevenLabsVoiceName, setElevenLabsVoiceName] = useState<string | null>(null);
+  const [audioProvider, setAudioProvider] = useState<'browser' | 'elevenlabs' | 'edge'>('browser');
+  const [serviceVoiceName, setServiceVoiceName] = useState<string | null>(null);
   const [audioStatusLoading, setAudioStatusLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [continuousAudioEnabled, setContinuousAudioEnabled] = useState(initialAudioMode === 'continuous');
   const [voicesLoaded, setVoicesLoaded] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceName, setSelectedVoiceName] = useState('');
+  const [audioRate, setAudioRate] = useState(DEFAULT_AUDIO_RATE);
+  const [audioPitch, setAudioPitch] = useState(DEFAULT_AUDIO_PITCH);
+  const [audioPauseMs, setAudioPauseMs] = useState(DEFAULT_AUDIO_PAUSE_MS);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [showAudioSettings, setShowAudioSettings] = useState(false);
   const prevCategoryRef = useRef<{ categoryId: string | undefined; subcategoryId: string | undefined } | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -52,11 +58,25 @@ export default function ReviewModal({
   const phrasesLengthRef = useRef(phrases.length);
   const openRef = useRef(open);
   const showEditModalRef = useRef(showEditModal);
+  const reviewedPhraseIdsRef = useRef<Set<string>>(new Set());
 
   const availableSpanishVoices = useMemo(
     () => voicesLoaded.filter(voice => voice.lang.toLowerCase().startsWith('es')),
     [voicesLoaded],
   );
+
+  const persistAudioPreferences = async (payload: {
+    selected_voice_name?: string | null;
+    rate?: number;
+    pitch?: number;
+    pause_ms?: number;
+  }) => {
+    try {
+      await phrasesAPI.updateAudioPreferences(payload);
+    } catch (error) {
+      console.error('Error saving phrase audio preferences:', error);
+    }
+  };
 
   const preferredVoice = useMemo(() => {
     if (voicesLoaded.length === 0) return null;
@@ -113,22 +133,36 @@ export default function ReviewModal({
     return `${phraseText}. ${notesText}`;
   };
 
+  const markPhraseAsReviewed = async (phraseId: string) => {
+    if (reviewedPhraseIdsRef.current.has(phraseId)) return;
+    await onReview(phraseId);
+    reviewedPhraseIdsRef.current.add(phraseId);
+  };
+
   const queueNextPhraseAfterPlayback = () => {
     if (!continuousAudioEnabledRef.current || showEditModalRef.current || !openRef.current) return;
 
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       if (!continuousAudioEnabledRef.current || showEditModalRef.current || !openRef.current) return;
+
+      const currentPhrase = phrases[currentIndexRef.current];
+      if (currentPhrase) {
+        try {
+          await markPhraseAsReviewed(currentPhrase.id);
+        } catch (error) {
+          console.error('Error auto-registering reviewed phrase:', error);
+        }
+      }
 
       if (currentIndexRef.current >= phrasesLengthRef.current - 1) {
         setContinuousAudioEnabled(false);
         setAudioEnabled(false);
         onOpenChange(false);
-        setCurrentIndex(0);
         return;
       }
 
       setCurrentIndex(prev => prev + 1);
-    }, 700);
+    }, audioPauseMs);
   };
 
   const speakWithBrowser = (text: string) => {
@@ -144,8 +178,8 @@ export default function ReviewModal({
     } else {
       utterance.lang = 'es-CO';
     }
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
+    utterance.rate = audioRate;
+    utterance.pitch = audioPitch;
 
     utterance.onstart = () => {
       setIsSpeaking(true);
@@ -167,7 +201,7 @@ export default function ReviewModal({
     window.speechSynthesis.speak(utterance);
   };
 
-  const speakWithElevenLabs = async (text: string) => {
+  const speakWithServiceAudio = async (text: string) => {
     if (!text.trim()) return;
 
     stopSpeech();
@@ -176,7 +210,10 @@ export default function ReviewModal({
     audioRequestIdRef.current = requestId;
 
     try {
-      const audioBlob = await phrasesAPI.generateAudio(text);
+      const audioBlob = await phrasesAPI.generateAudio(text, {
+        rate: audioRate,
+        pitch: audioPitch,
+      });
       if (audioRequestIdRef.current !== requestId) return;
 
       const audioUrl = URL.createObjectURL(audioBlob);
@@ -211,8 +248,8 @@ export default function ReviewModal({
 
       await audio.play();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo generar el audio con ElevenLabs.';
-      console.error('Error playing ElevenLabs audio:', error);
+      const message = error instanceof Error ? error.message : 'No se pudo generar el audio del proveedor configurado.';
+      console.error('Error playing service audio:', error);
       setAudioError(message);
       setIsSpeaking(false);
       setIsPaused(false);
@@ -220,8 +257,8 @@ export default function ReviewModal({
   };
 
   const speakPhrase = (text: string) => {
-    if (audioProvider === 'elevenlabs') {
-      void speakWithElevenLabs(text);
+    if (audioProvider === 'elevenlabs' || audioProvider === 'edge') {
+      void speakWithServiceAudio(text);
       return;
     }
     speakWithBrowser(text);
@@ -236,11 +273,13 @@ export default function ReviewModal({
       setAudioEnabled(initialAudioMode !== 'off');
       setContinuousAudioEnabled(initialAudioMode === 'continuous');
       setAudioProvider('browser');
-      setElevenLabsVoiceName(null);
+      setServiceVoiceName(null);
       setAudioStatusLoading(true);
       setAudioError(null);
       setIsSpeaking(false);
       setIsPaused(false);
+      setShowAudioSettings(false);
+      reviewedPhraseIdsRef.current = new Set();
     } else {
       stopSpeech();
     }
@@ -255,18 +294,20 @@ export default function ReviewModal({
       try {
         const status = await phrasesAPI.getAudioStatus();
         if (cancelled) return;
-        if (status.enabled && status.provider === 'elevenlabs') {
-          setAudioProvider('elevenlabs');
-          setElevenLabsVoiceName(status.voice_name ?? 'ElevenLabs');
+        if (status.enabled && (status.provider === 'elevenlabs' || status.provider === 'edge')) {
+          setAudioProvider(status.provider);
+          setServiceVoiceName(
+            status.voice_name ?? (status.provider === 'edge' ? 'Edge TTS' : 'ElevenLabs'),
+          );
         } else {
           setAudioProvider('browser');
-          setElevenLabsVoiceName(null);
+          setServiceVoiceName(null);
         }
       } catch (error) {
         console.error('Error loading phrase audio provider status:', error);
         if (!cancelled) {
           setAudioProvider('browser');
-          setElevenLabsVoiceName(null);
+          setServiceVoiceName(null);
         }
       } finally {
         if (!cancelled) {
@@ -276,6 +317,29 @@ export default function ReviewModal({
     };
 
     loadAudioStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    const loadAudioPreferences = async () => {
+      try {
+        const prefs = await phrasesAPI.getAudioPreferences();
+        if (cancelled) return;
+        setSelectedVoiceName(prefs.selected_voice_name ?? '');
+        setAudioRate(prefs.rate ?? DEFAULT_AUDIO_RATE);
+        setAudioPitch(prefs.pitch ?? DEFAULT_AUDIO_PITCH);
+        setAudioPauseMs(prefs.pause_ms ?? DEFAULT_AUDIO_PAUSE_MS);
+      } catch (error) {
+        console.error('Error loading phrase audio preferences:', error);
+      }
+    };
+
+    loadAudioPreferences();
     return () => {
       cancelled = true;
     };
@@ -316,23 +380,6 @@ export default function ReviewModal({
       window.speechSynthesis.onvoiceschanged = null;
     };
   }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const savedVoice = window.localStorage.getItem(AUDIO_VOICE_STORAGE_KEY);
-    if (savedVoice) {
-      setSelectedVoiceName(savedVoice);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!selectedVoiceName) {
-      window.localStorage.removeItem(AUDIO_VOICE_STORAGE_KEY);
-      return;
-    }
-    window.localStorage.setItem(AUDIO_VOICE_STORAGE_KEY, selectedVoiceName);
-  }, [selectedVoiceName]);
 
   useEffect(() => {
     if (!preferredVoice || selectedVoiceName) return;
@@ -397,12 +444,11 @@ export default function ReviewModal({
     if (savingReview) return;
     try {
       setSavingReview(true);
-      await onReview(currentPhrase.id);
+      await markPhraseAsReviewed(currentPhrase.id);
       if (currentIndex < phrases.length - 1) {
         handleNext();
       } else {
         onOpenChange(false);
-        setCurrentIndex(0);
       }
     } finally {
       setSavingReview(false);
@@ -414,23 +460,31 @@ export default function ReviewModal({
     onOpenChange(false);
   };
 
-  const handleToggleAudio = () => {
+  const handlePlayCurrentPhrase = () => {
     if (audioStatusLoading) return;
     if (audioProvider === 'browser' && (typeof window === 'undefined' || !('speechSynthesis' in window))) return;
 
-    if (audioEnabled) {
-      stopSpeech();
-      setAudioEnabled(false);
-      return;
-    }
-
     setAudioError(null);
+    setContinuousAudioEnabled(false);
     setAudioEnabled(true);
     speakPhrase(buildAudioScript(currentPhrase));
   };
 
   const handleToggleContinuousAudio = () => {
-    setContinuousAudioEnabled(prev => !prev);
+    if (audioStatusLoading) return;
+    if (audioProvider === 'browser' && (typeof window === 'undefined' || !('speechSynthesis' in window))) return;
+
+    setAudioError(null);
+    setContinuousAudioEnabled((prev) => {
+      const next = !prev;
+      if (next) {
+        setAudioEnabled(true);
+        setTimeout(() => {
+          speakPhrase(buildAudioScript(currentPhrase));
+        }, 0);
+      }
+      return next;
+    });
   };
 
   const handlePauseResume = () => {
@@ -441,7 +495,7 @@ export default function ReviewModal({
       return;
     }
 
-    if (audioProvider === 'elevenlabs') {
+    if (audioProvider === 'elevenlabs' || audioProvider === 'edge') {
       const audio = audioElementRef.current;
       if (audio && !audio.paused) {
         audio.pause();
@@ -486,6 +540,58 @@ export default function ReviewModal({
 
   const handleVoiceChange = (voiceName: string) => {
     setSelectedVoiceName(voiceName);
+    void persistAudioPreferences({ selected_voice_name: voiceName || null });
+
+    if (audioEnabled) {
+      setAudioError(null);
+      setTimeout(() => {
+        speakPhrase(buildAudioScript(currentPhrase));
+      }, 0);
+    }
+  };
+
+  const handleAudioRateChange = (value: number) => {
+    setAudioRate(value);
+    void persistAudioPreferences({ rate: value });
+    if (audioEnabled) {
+      setAudioError(null);
+      setTimeout(() => {
+        speakPhrase(buildAudioScript(currentPhrase));
+      }, 0);
+    }
+  };
+
+  const handleAudioPitchChange = (value: number) => {
+    setAudioPitch(value);
+    void persistAudioPreferences({ pitch: value });
+    if (audioEnabled) {
+      setAudioError(null);
+      setTimeout(() => {
+        speakPhrase(buildAudioScript(currentPhrase));
+      }, 0);
+    }
+  };
+
+  const handleAudioPauseChange = (value: number) => {
+    setAudioPauseMs(value);
+    void persistAudioPreferences({ pause_ms: value });
+  };
+
+  const handleResetAudioSettings = () => {
+    setAudioRate(DEFAULT_AUDIO_RATE);
+    setAudioPitch(DEFAULT_AUDIO_PITCH);
+    setAudioPauseMs(DEFAULT_AUDIO_PAUSE_MS);
+
+    if (audioProvider === 'browser') {
+      setSelectedVoiceName('');
+    }
+
+    void persistAudioPreferences({
+      selected_voice_name: audioProvider === 'browser' ? null : selectedVoiceName || null,
+      rate: DEFAULT_AUDIO_RATE,
+      pitch: DEFAULT_AUDIO_PITCH,
+      pause_ms: DEFAULT_AUDIO_PAUSE_MS,
+    });
 
     if (audioEnabled) {
       setAudioError(null);
@@ -527,26 +633,12 @@ export default function ReviewModal({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={handleToggleAudio}
+              onClick={handlePlayCurrentPhrase}
               disabled={audioStatusLoading}
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
-                audioEnabled
-                  ? 'bg-primary text-primary-foreground'
-                  : 'border border-border bg-background text-foreground hover:bg-accent'
-              } disabled:opacity-50`}
-            >
-              <Volume2 className="h-4 w-4" />
-              {audioStatusLoading ? 'Preparando audio...' : audioEnabled ? 'Modo auditivo activo' : 'Activar modo auditivo'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handlePauseResume}
-              disabled={audioStatusLoading || (!audioEnabled && phrases.length === 0)}
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
             >
-              {isSpeaking && !isPaused ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {isSpeaking && !isPaused ? 'Pausar audio' : isPaused ? 'Continuar audio' : 'Reproducir frase'}
+              <Play className="h-4 w-4" />
+              {audioStatusLoading ? 'Preparando audio...' : 'Reproducir frase'}
             </button>
 
             <button
@@ -564,6 +656,16 @@ export default function ReviewModal({
 
             <button
               type="button"
+              onClick={handlePauseResume}
+              disabled={audioStatusLoading || (!audioEnabled && phrases.length === 0)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              {isSpeaking && !isPaused ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              {isSpeaking && !isPaused ? 'Pausar audio' : isPaused ? 'Continuar audio' : 'Reanudar audio'}
+            </button>
+
+            <button
+              type="button"
               onClick={stopSpeech}
               disabled={!audioEnabled && !isSpeaking && !isPaused}
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
@@ -576,38 +678,107 @@ export default function ReviewModal({
               {audioStatusLoading
                 ? 'Detectando proveedor de audio...'
                 : audioProvider === 'elevenlabs'
-                ? `Proveedor actual: ElevenLabs${elevenLabsVoiceName ? ` · ${elevenLabsVoiceName}` : ''}`
+                ? `Proveedor actual: ElevenLabs${serviceVoiceName ? ` · ${serviceVoiceName}` : ''}`
+                : audioProvider === 'edge'
+                ? `Proveedor actual: Edge TTS${serviceVoiceName ? ` · ${serviceVoiceName}` : ''}`
                 : preferredVoice
                   ? `Voz actual: ${preferredVoice.name}`
                   : 'Se usara la mejor voz en espanol disponible'}
             </span>
+            <button
+              type="button"
+              onClick={() => setShowAudioSettings((prev) => !prev)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                showAudioSettings
+                  ? 'border-primary/20 bg-primary/10 text-primary'
+                  : 'border-border bg-background text-foreground hover:bg-accent'
+              }`}
+            >
+              <Settings2 className="h-4 w-4" />
+              {showAudioSettings ? 'Ocultar ajustes' : 'Ajustes de audio'}
+            </button>
             {continuousAudioEnabled && (
               <span className="text-xs text-primary">
                 La sesion avanzara sola al terminar cada frase.
               </span>
             )}
           </div>
-          {!audioStatusLoading && audioProvider === 'browser' && (
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <label htmlFor="phrase-audio-voice" className="text-xs font-medium text-muted-foreground">
-                Voz del repaso
-              </label>
-              <select
-                id="phrase-audio-voice"
-                value={selectedVoiceName}
-                onChange={(e) => handleVoiceChange(e.target.value)}
-                className="min-w-[280px] max-w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {availableSpanishVoices.length === 0 ? (
-                  <option value="">Sin voces en espanol disponibles</option>
-                ) : (
-                  availableSpanishVoices.map((voice) => (
-                    <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))
-                )}
-              </select>
+          {showAudioSettings && !audioStatusLoading && (
+            <div className="mt-3 rounded-xl border border-border bg-background/70 p-4 space-y-4">
+              {audioProvider === 'browser' && (
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="phrase-audio-voice" className="text-xs font-medium text-muted-foreground">
+                    Voz del repaso
+                  </label>
+                  <select
+                    id="phrase-audio-voice"
+                    value={selectedVoiceName}
+                    onChange={(e) => handleVoiceChange(e.target.value)}
+                    className="min-w-[280px] max-w-full rounded-lg border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {availableSpanishVoices.length === 0 ? (
+                      <option value="">Sin voces en espanol disponibles</option>
+                    ) : (
+                      availableSpanishVoices.map((voice) => (
+                        <option key={`${voice.name}-${voice.lang}`} value={voice.name}>
+                          {voice.name} ({voice.lang})
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <label className="flex flex-col gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium">Velocidad: {audioRate.toFixed(2)}x</span>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.3"
+                    step="0.05"
+                    value={audioRate}
+                    onChange={(e) => handleAudioRateChange(Number(e.target.value))}
+                    className="accent-primary"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium">Tono: {audioPitch.toFixed(2)}x</span>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.3"
+                    step="0.05"
+                    value={audioPitch}
+                    onChange={(e) => handleAudioPitchChange(Number(e.target.value))}
+                    className="accent-primary"
+                  />
+                </label>
+
+                <label className="flex flex-col gap-2 text-xs text-muted-foreground">
+                  <span className="font-medium">Pausa entre frases: {(audioPauseMs / 1000).toFixed(1)}s</span>
+                  <input
+                    type="range"
+                    min="300"
+                    max="2000"
+                    step="100"
+                    value={audioPauseMs}
+                    onChange={(e) => handleAudioPauseChange(Number(e.target.value))}
+                    className="accent-primary"
+                  />
+                </label>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetAudioSettings}
+                  className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  Restablecer voz
+                </button>
+              </div>
             </div>
           )}
           {audioError && (

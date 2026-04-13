@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import (
     GoalCreate, GoalUpdate, GoalResponse, GoalFocusUpdate,
-    GoalsPaginatedResponse, GoalSkipDayResponse
+    GoalsPaginatedResponse, GoalSkipDayResponse, GoalCompletionDayResponse
 )
 from app.services.goal_service import GoalService
 from typing import List
@@ -64,6 +64,19 @@ def list_skipped_goals(
     return GoalService.get_skipped_goal_ids(db, fecha)
 
 
+@router.get("/completions", response_model=List[GoalCompletionDayResponse])
+def list_completed_goals(
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Obtener completados diarios de objetivos recurrentes para una fecha."""
+    entries = GoalService.get_completed_goal_entries(db, fecha)
+    return [
+        GoalCompletionDayResponse(goal_id=entry.objetivo_id, fecha=entry.fecha, completed_at=entry.fecha_creacion)
+        for entry in entries
+    ]
+
+
 @router.get("/{goal_id}", response_model=GoalResponse)
 def get_goal(goal_id: int, db: Session = Depends(get_db)):
     """Obtener objetivo por ID."""
@@ -114,6 +127,19 @@ def skip_goal_for_date(
     return GoalSkipDayResponse(goal_id=skipped.objetivo_id, fecha=skipped.fecha)
 
 
+@router.post("/{goal_id}/complete", response_model=GoalCompletionDayResponse, status_code=201)
+def complete_goal_for_date(
+    goal_id: int,
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Marcar un objetivo recurrente como completado para una fecha."""
+    completed = GoalService.complete_goal_for_date(db, goal_id, fecha)
+    if not completed:
+        raise HTTPException(status_code=404, detail="Recurring goal not found")
+    return GoalCompletionDayResponse(goal_id=completed.objetivo_id, fecha=completed.fecha, completed_at=completed.fecha_creacion)
+
+
 @router.delete("/{goal_id}/skip")
 def unskip_goal_for_date(
     goal_id: int,
@@ -125,3 +151,16 @@ def unskip_goal_for_date(
     if not removed:
         raise HTTPException(status_code=404, detail="Skipped goal entry not found")
     return {"message": "Goal skip removed"}
+
+
+@router.delete("/{goal_id}/complete")
+def uncomplete_goal_for_date(
+    goal_id: int,
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Quitar el completado diario de un objetivo recurrente."""
+    removed = GoalService.uncomplete_goal_for_date(db, goal_id, fecha)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Goal completion entry not found")
+    return {"message": "Goal completion removed"}

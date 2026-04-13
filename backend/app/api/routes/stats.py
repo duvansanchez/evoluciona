@@ -6,9 +6,10 @@ import random
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from app.db.database import get_db
-from app.models.models import Phrase
+from app.models.models import Phrase, PhraseCategory, PhraseSubcategory
+from app.services.goal_service import GoalService
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -42,6 +43,7 @@ def _calc_streak(dates: list, today_str: str) -> int:
 def get_dashboard(db: Session = Depends(get_db)):
     """Datos completos para el dashboard de inicio."""
     today_str = date.today().isoformat()
+    GoalService.reset_stale_recurring_goals(db, today_str)
 
     # ── Rachas ─────────────────────────────────────────────────────────────────
 
@@ -56,11 +58,22 @@ def get_dashboard(db: Session = Depends(get_db)):
     )).fetchall()
     racha_preguntas = _calc_streak([r[0] for r in rows], today_str)
 
-    rows = db.execute(text(
-        "SELECT DISTINCT CONVERT(VARCHAR(10), fecha_completado, 120) as d "
-        "FROM objetivos WHERE LOWER(categoria) = 'diario' AND completado = 1 "
-        "AND fecha_completado IS NOT NULL ORDER BY d DESC"
-    )).fetchall()
+    rows = db.execute(text("""
+        SELECT DISTINCT d FROM (
+            SELECT CONVERT(VARCHAR(10), o.fecha_completado, 120) as d
+            FROM objetivos o
+            WHERE LOWER(o.categoria) = 'diario'
+              AND o.completado = 1
+              AND o.fecha_completado IS NOT NULL
+              AND (o.recurrente = 0 OR o.recurrente IS NULL)
+            UNION
+            SELECT ocd.fecha as d
+            FROM objetivo_completado_dias ocd
+            INNER JOIN objetivos o ON o.id = ocd.objetivo_id
+            WHERE LOWER(o.categoria) = 'diario'
+        ) streak_dates
+        ORDER BY d DESC
+    """)).fetchall()
     racha_objetivos = _calc_streak([r[0] for r in rows], today_str)
 
     # ── Objetivos diarios hoy ─────────────────────────────────────────────────
@@ -107,7 +120,15 @@ def get_dashboard(db: Session = Depends(get_db)):
 
     # ── Frase del día (misma todo el día, cambia cada día) ────────────────────
 
-    frases = db.query(Phrase).filter(Phrase.activa == True).all()
+    frases = (
+        db.query(Phrase)
+        .outerjoin(PhraseCategory, Phrase.categoria_id == PhraseCategory.id)
+        .outerjoin(PhraseSubcategory, Phrase.subcategoria_id == PhraseSubcategory.id)
+        .filter(Phrase.activa == True)
+        .filter(or_(Phrase.categoria_id.is_(None), PhraseCategory.activa == True))
+        .filter(or_(Phrase.subcategoria_id.is_(None), PhraseSubcategory.activa == True))
+        .all()
+    )
     frase_del_dia = None
     if frases:
         random.seed(today_str)

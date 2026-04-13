@@ -11,31 +11,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-print("🔍 [1] Iniciando importaciones...", flush=True)
+print("[1] Iniciando importaciones...", flush=True)
 
 try:
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse
-    print("✅ FastAPI importado", flush=True)
+    print("[OK] FastAPI importado", flush=True)
 
     from fastapi.middleware.cors import CORSMiddleware
-    print("✅ CORS middleware importado", flush=True)
+    print("[OK] CORS middleware importado", flush=True)
     
     from app.config import settings
-    print("✅ Config importada", flush=True)
+    print("[OK] Config importada", flush=True)
     
     from app.api import api_router
-    print("✅ API router importado", flush=True)
+    print("[OK] API router importado", flush=True)
 
     from app.services.report_scheduler_service import initialize_scheduler
-    print("✅ Scheduler service importado", flush=True)
+    print("[OK] Scheduler service importado", flush=True)
 
     # Importar modelos para que se registren en Base.metadata antes de create_all
     import app.models.models  # noqa: F401
     import app.models.subgoal  # noqa: F401
     from app.db.database import init_db, get_engine
     init_db()
-    print("✅ Tablas de BD verificadas/creadas", flush=True)
+    print("[OK] Tablas de BD verificadas/creadas", flush=True)
 
     # Migraciones: agregar columnas si no existen
     try:
@@ -71,6 +71,18 @@ try:
                     fecha_creacion DATETIME NULL,
                     CONSTRAINT uq_objetivo_saltado_dia UNIQUE (objetivo_id, fecha),
                     CONSTRAINT fk_objetivo_saltado_dias_objetivo
+                        FOREIGN KEY (objetivo_id) REFERENCES objetivos(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'objetivo_completado_dias', N'U') IS NULL
+                CREATE TABLE objetivo_completado_dias (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    objetivo_id INT NOT NULL,
+                    fecha NVARCHAR(10) NOT NULL,
+                    fecha_creacion DATETIME NULL,
+                    CONSTRAINT uq_objetivo_completado_dia UNIQUE (objetivo_id, fecha),
+                    CONSTRAINT fk_objetivo_completado_dias_objetivo
                         FOREIGN KEY (objetivo_id) REFERENCES objetivos(id) ON DELETE CASCADE
                 )
             """))
@@ -115,18 +127,41 @@ try:
                         FOREIGN KEY (review_plan_id) REFERENCES review_plans(id) ON DELETE SET NULL
                 )
             """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'frase_audio_preferencias', N'U') IS NULL
+                CREATE TABLE frase_audio_preferencias (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    selected_voice_name NVARCHAR(255) NULL,
+                    rate FLOAT NOT NULL DEFAULT 1.0,
+                    pitch FLOAT NOT NULL DEFAULT 1.0,
+                    pause_ms INT NOT NULL DEFAULT 700,
+                    fecha_actualizacion DATETIME NULL
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'weekly_conclusions', N'U') IS NULL
+                CREATE TABLE weekly_conclusions (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    week_start NVARCHAR(10) NOT NULL,
+                    week_end NVARCHAR(10) NOT NULL,
+                    content NVARCHAR(MAX) NOT NULL,
+                    created_at DATETIME NULL,
+                    updated_at DATETIME NULL,
+                    CONSTRAINT uq_weekly_conclusions_week_start UNIQUE (week_start)
+                )
+            """))
             conn.commit()
-        print("✅ Migraciones verificadas", flush=True)
+        print("[OK] Migraciones verificadas", flush=True)
     except Exception as mig_err:
-        print(f"⚠️  Migración omitida: {mig_err}", flush=True)
+        print(f"[WARN] Migracion omitida: {mig_err}", flush=True)
 
 except Exception as e:
-    print(f"❌ Error en importaciones: {e}", flush=True)
+    print(f"[ERROR] Error en importaciones: {e}", flush=True)
     import traceback
     traceback.print_exc()
     sys.exit(1)
 
-print("🔍 [2] Creando aplicación FastAPI...", flush=True)
+print("[2] Creando aplicacion FastAPI...", flush=True)
 
 # Crear aplicación
 app = FastAPI(
@@ -135,7 +170,7 @@ app = FastAPI(
     description="API para Daily Questions - Gestión de objetivos, frases y preguntas diarias"
 )
 
-print("🔍 [3] Configurando CORS...", flush=True)
+print("[3] Configurando CORS...", flush=True)
 
 # Configurar CORS
 app.add_middleware(
@@ -156,12 +191,12 @@ async def global_exception_handler(request: Request, exc: Exception):
         headers={"Access-Control-Allow-Origin": "*"},
     )
 
-print("🔍 [4] Incluyendo routers...", flush=True)
+print("[4] Incluyendo routers...", flush=True)
 
 # Incluir rutas
 app.include_router(api_router)
 
-print("🔍 [5] Registrando endpoints de salud...", flush=True)
+print("[5] Registrando endpoints de salud...", flush=True)
 
 @app.get("/health")
 def health_check():
@@ -175,7 +210,7 @@ def docs_redirect():
     return {"docs": "/docs", "redoc": "/redoc"}
 
 
-print("✅ ¡Aplicación FastAPI configurada exitosamente!", flush=True)
+print("[OK] Aplicacion FastAPI configurada exitosamente", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +286,10 @@ if __name__ == "__main__":
     import uvicorn
     
     print("\n" + "="*60, flush=True)
-    print("🚀 INICIANDO SERVIDOR FASTAPI", flush=True)
+    print("INICIANDO SERVIDOR FASTAPI", flush=True)
     print("="*60, flush=True)
-    print(f"📍 URL: http://0.0.0.0:3001", flush=True)
-    print(f"📚 Documentación: http://localhost:3001/docs", flush=True)
+    print("URL: http://0.0.0.0:3001", flush=True)
+    print("Documentacion: http://localhost:3001/docs", flush=True)
     print("="*60 + "\n", flush=True)
     
     try:
@@ -267,9 +302,9 @@ if __name__ == "__main__":
             access_log=True
         )
     except KeyboardInterrupt:
-        print("\n⛔ Servidor detenido por el usuario", flush=True)
+        print("\nServidor detenido por el usuario", flush=True)
     except Exception as e:
-        print(f"❌ Error al ejecutar servidor: {e}", flush=True)
+        print(f"[ERROR] Error al ejecutar servidor: {e}", flush=True)
         import traceback
         traceback.print_exc()
         sys.exit(1)

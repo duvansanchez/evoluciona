@@ -516,6 +516,12 @@ class GoalSkipDayResponse(BaseModel):
     fecha: str
 
 
+class GoalCompletionDayResponse(BaseModel):
+    goal_id: int
+    fecha: str
+    completed_at: Optional[datetime] = None
+
+
 class PhrasesPaginatedResponse(BaseModel):
     """Respuesta paginada para frases."""
     total: int
@@ -532,3 +538,24 @@ class QuestionsPaginatedResponse(BaseModel):
     page_size: int
     pages: int
     items: List[QuestionResponse]
+
+
+class WeeklyConclusionUpsert(BaseModel):
+    reference_date: Optional[str] = None
+    content: str = Field(..., min_length=1)
+
+
+class WeeklyConclusionResponse(BaseModel):
+    id: Optional[int] = None
+    week_start: str
+    week_end: str
+    period_label: str
+    content: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }

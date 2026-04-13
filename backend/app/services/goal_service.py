@@ -3,7 +3,7 @@ Servicios para objetivos (Goals).
 """
 
 from sqlalchemy.orm import Session
-from app.models.models import Goal, GoalSkipDay
+from app.models.models import Goal, GoalSkipDay, GoalCompletionDay
 from app.schemas.schemas import GoalCreate, GoalUpdate
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -11,6 +11,31 @@ from typing import Optional, List, Tuple
 
 class GoalService:
     """Servicio para objetivos."""
+
+    @staticmethod
+    def reset_stale_recurring_goals(db: Session, today_key: Optional[str] = None) -> None:
+        """Reiniciar el estado actual de recurrentes viejos, conservando el historial diario."""
+        today_key = today_key or datetime.now().strftime("%Y-%m-%d")
+        stale_goals = (
+            db.query(Goal)
+            .filter(
+                Goal.recurrente == True,
+                Goal.completado == True,
+                Goal.fecha_completado.isnot(None),
+            )
+            .all()
+        )
+
+        dirty = False
+        for goal in stale_goals:
+            completed_key = goal.fecha_completado.strftime("%Y-%m-%d") if goal.fecha_completado else None
+            if completed_key and completed_key != today_key:
+                goal.completado = False
+                goal.fecha_completado = None
+                dirty = True
+
+        if dirty:
+            db.commit()
     
     @staticmethod
     def create_goal(db: Session, goal: GoalCreate) -> Goal:
@@ -57,6 +82,7 @@ class GoalService:
         page_size: int = 10
     ) -> Tuple[List[Goal], int]:
         """Obtener objetivos con filtros y paginación."""
+        GoalService.reset_stale_recurring_goals(db)
         query = db.query(Goal)
         
         if category:
@@ -144,6 +170,60 @@ class GoalService:
             row.objetivo_id
             for row in db.query(GoalSkipDay.objetivo_id).filter(GoalSkipDay.fecha == fecha).all()
         ]
+
+    @staticmethod
+    def get_completed_goal_entries(db: Session, fecha: str) -> List[GoalCompletionDay]:
+        """Obtener historial de completado diario para objetivos recurrentes."""
+        return (
+            db.query(GoalCompletionDay)
+            .filter(GoalCompletionDay.fecha == fecha)
+            .all()
+        )
+
+    @staticmethod
+    def complete_goal_for_date(db: Session, goal_id: int, fecha: str) -> Optional[GoalCompletionDay]:
+        """Persistir completado diario para un objetivo recurrente."""
+        goal = db.query(Goal).filter(Goal.id == goal_id).first()
+        if not goal or not goal.recurrente:
+            return None
+
+        existing = db.query(GoalCompletionDay).filter(
+            GoalCompletionDay.objetivo_id == goal_id,
+            GoalCompletionDay.fecha == fecha,
+        ).first()
+        if existing:
+            return existing
+
+        completed_at = datetime.now()
+        completion_day = GoalCompletionDay(
+            objetivo_id=goal_id,
+            fecha=fecha,
+            fecha_creacion=completed_at,
+        )
+        db.add(completion_day)
+        goal.completado = True
+        goal.fecha_completado = completed_at
+        db.commit()
+        db.refresh(completion_day)
+        return completion_day
+
+    @staticmethod
+    def uncomplete_goal_for_date(db: Session, goal_id: int, fecha: str) -> bool:
+        """Eliminar el completado diario de un objetivo recurrente."""
+        existing = db.query(GoalCompletionDay).filter(
+            GoalCompletionDay.objetivo_id == goal_id,
+            GoalCompletionDay.fecha == fecha,
+        ).first()
+        if not existing:
+            return False
+
+        goal = db.query(Goal).filter(Goal.id == goal_id).first()
+        db.delete(existing)
+        if goal:
+            goal.completado = False
+            goal.fecha_completado = None
+        db.commit()
+        return True
 
     @staticmethod
     def skip_goal_for_date(db: Session, goal_id: int, fecha: str) -> Optional[GoalSkipDay]:

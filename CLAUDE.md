@@ -93,6 +93,21 @@ Hay dos `.env` separados, **no se pisan**:
   proceder con la tarea.
 - Ningun commit puede llevar que fue co autorizado por Claude, ninguno.
 
+## Skills obligatorios — aplicar SIEMPRE
+Antes de escribir cualquier código, consultar y aplicar las reglas de los skills instalados según el área:
+
+| Área | Skills a aplicar |
+|------|-----------------|
+| Componentes React | `vercel-react-best-practices`, `vercel-composition-patterns` |
+| Clases CSS / UI | `tailwind-css-patterns`, `tailwind-v4-shadcn` |
+| Componentes shadcn/ui | `shadcn` |
+| Tipos TypeScript | `typescript-advanced-types` |
+| Tests con Vitest | `vitest` |
+
+> Skills eliminados por irrelevantes: `seo`, `accessibility`, `bun`, `vite`, `frontend-design`, `nodejs-backend-patterns`, `nodejs-best-practices` (backend es Python/FastAPI, no Node.js).
+
+**No es opcional.** Si tocás un componente React, aplicás los skills de React. Si escribís o modificás tests, aplicás `vitest`. Sin excepción.
+
 ## Git
 
 No hacer `git commit` ni `git push` a menos que el usuario lo pida explícitamente.

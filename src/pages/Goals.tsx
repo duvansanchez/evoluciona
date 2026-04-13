@@ -7,7 +7,7 @@ import GoalFocusModal from '@/components/goals/GoalFocusModal';
 import FocusModal from '@/components/goals/FocusModal';
 import { goalFoldersAPI, goalsAPI, rutinasAPI } from '@/services/api';
 import type { Goal, GoalCategory, GoalFolder, SubGoal } from '@/types';
-import type { RutinaAsignacion } from '@/services/api';
+import type { Rutina, RutinaAsignacion } from '@/services/api';
 import { getLocalDateString } from '@/lib/utils';
 
 const tabs: { key: GoalCategory | 'all' | 'historicos'; label: string }[] = [
@@ -45,6 +45,22 @@ const mapPriority = (prioridad: string | null | undefined): 'high' | 'medium' | 
   if (normalized === 'alta' || normalized === 'high') return 'high';
   if (normalized === 'baja' || normalized === 'low') return 'low';
   return 'medium';
+};
+
+const isCompletedToday = (completedAt?: string | null): boolean => {
+  if (!completedAt) return false;
+
+  const parsedDate = new Date(completedAt);
+  if (Number.isNaN(parsedDate.getTime())) return false;
+
+  return getLocalDateString(parsedDate) === getLocalDateString();
+};
+
+const getEffectiveCompleted = (item: any): boolean => {
+  const rawCompleted = item.completado === true;
+  if (!rawCompleted) return false;
+  if (item.recurrente === true) return isCompletedToday(item.fecha_completado);
+  return true;
 };
 
 // Filtrar objetivos según reglas de visualización por fecha
@@ -108,14 +124,16 @@ const shouldShowGoal = (item: any, goalCategory: GoalCategory): boolean => {
 };
 
 // Mapear datos del backend al formato frontend
-const mapBackendGoal = (item: any): Goal => ({
+const mapBackendGoal = (item: any, completedRecurringGoalIds?: Set<string>): Goal => ({
   id: item.id.toString(),
   title: item.titulo,
   icon: item.icono || undefined,
   description: item.descripcion || undefined,
   category: mapCategory(item.categoria),
   priority: mapPriority(item.prioridad),
-  completed: item.completado || false,
+  completed: item.recurrente
+    ? completedRecurringGoalIds?.has(item.id.toString()) ?? false
+    : getEffectiveCompleted(item),
   recurring: item.recurrente || false,
   createdAt: item.fecha_creacion,
   completedAt: item.fecha_completado || undefined,
@@ -156,11 +174,16 @@ export default function Goals() {
   const [skippedGoalIds, setSkippedGoalIds] = useState<Set<string>>(new Set());
   const [showSkipped, setShowSkipped] = useState(false);
   const [folders, setFolders] = useState<GoalFolder[]>([]);
+  const [rutinasCatalog, setRutinasCatalog] = useState<Rutina[]>([]);
 
   // Cargar objetivos del backend
   const loadGoals = async () => {
       try {
         setLoading(true);
+        const completedEntries = await goalsAPI.getCompletedGoals(todayKey).catch(() => []);
+        const completedRecurringGoalIds = new Set(
+          completedEntries.map(entry => entry.goal_id.toString())
+        );
         
         // Cargar primera página para obtener el total
         const firstPage = await goalsAPI.getGoals(1, 100);
@@ -184,7 +207,7 @@ export default function Goals() {
         console.log(`✅ Total objetivos cargados: ${allItems.length}`);
         
         // Mapear PRIMERO (para tener la categoría en inglés)
-        const allMapped = allItems.map(mapBackendGoal);
+        const allMapped = allItems.map(item => mapBackendGoal(item, completedRecurringGoalIds));
         setAllGoalsMapped(allMapped);
         setHistoricSubgoalsLoaded(false);
         
@@ -247,6 +270,7 @@ export default function Goals() {
 
   useEffect(() => {
     loadGoals();
+    rutinasAPI.getRutinas().then(setRutinasCatalog).catch(() => {});
     goalFoldersAPI.getFolders().then(setFolders).catch(() => {});
   }, []);
 
@@ -256,11 +280,18 @@ export default function Goals() {
       .catch(error => console.error('Error loading skipped goals:', error));
   }, [todayKey]);
 
-  useEffect(() => {
-    rutinasAPI.getSemana(todayKey).then(semana => {
+  const loadTodayAsignaciones = async () => {
+    try {
+      const semana = await rutinasAPI.getSemana(todayKey);
       const diaHoy = semana.find(d => d.fecha === todayKey);
       setTodayAsignaciones(diaHoy?.asignaciones ?? []);
-    }).catch(() => {});
+    } catch {
+      setTodayAsignaciones([]);
+    }
+  };
+
+  useEffect(() => {
+    loadTodayAsignaciones();
   }, [todayKey]);
 
   useEffect(() => {
@@ -323,7 +354,44 @@ export default function Goals() {
 
   const isGoalSkippedToday = (goal: Goal) => goal.recurring && skippedGoalIds.has(goal.id);
 
-  const isGoalApplicableToday = (goal: Goal) => !isGoalSkippedToday(goal);
+  const getRutinasVinculadas = (goalId: string) =>
+    rutinasCatalog.filter(r => (r.objetivos ?? []).some(o => o.id.toString() === goalId));
+
+  const shouldShowGoalByRutinaProgramming = (goal: Goal) => {
+    if (!goal.recurring) return true;
+
+    const linkedRutinas = getRutinasVinculadas(goal.id);
+    if (linkedRutinas.length === 0) return true;
+
+    return todayAsignaciones.some(asig => linkedRutinas.some(r => r.id === asig.rutina.id));
+  };
+
+  const isGoalApplicableToday = (goal: Goal) =>
+    !isGoalSkippedToday(goal) && shouldShowGoalByRutinaProgramming(goal);
+
+  const syncGoalRutinaLink = async (goalId: string | number, linkedRutinaId?: string | number) => {
+    const parsedGoalId = Number(goalId);
+    const parsedRutinaId = linkedRutinaId ? Number(linkedRutinaId) : null;
+
+    const currentRutinas = rutinasCatalog.filter(r => (r.objetivos ?? []).some(o => o.id === parsedGoalId));
+
+    await Promise.all(
+      currentRutinas
+        .filter(r => r.id !== parsedRutinaId)
+        .map(r => rutinasAPI.removeObjetivo(r.id, parsedGoalId))
+    );
+
+    if (parsedRutinaId) {
+      const alreadyLinked = currentRutinas.some(r => r.id === parsedRutinaId);
+      if (!alreadyLinked) {
+        await rutinasAPI.addObjetivo(parsedRutinaId, parsedGoalId);
+      }
+    }
+
+    const freshRutinas = await rutinasAPI.getRutinas();
+    setRutinasCatalog(freshRutinas);
+    await loadTodayAsignaciones();
+  };
 
   const syncRutinaCompletionForGoal = (goalId: string, updatedGoals: Goal[], nextSkippedGoalIds = skippedGoalIds) => {
     todayAsignaciones.forEach(asig => {
@@ -345,10 +413,10 @@ export default function Goals() {
   };
 
   const filtered = activeTab === 'all' ? goals : goals.filter(g => g.category === activeTab);
-  const daily = goals.filter(g => g.category === 'daily');
-  const weekly = goals.filter(g => g.category === 'weekly');
-  const monthly = goals.filter(g => g.category === 'monthly');
-  const yearly = goals.filter(g => g.category === 'yearly');
+  const daily = goals.filter(g => g.category === 'daily' && shouldShowGoalByRutinaProgramming(g));
+  const weekly = goals.filter(g => g.category === 'weekly' && shouldShowGoalByRutinaProgramming(g));
+  const monthly = goals.filter(g => g.category === 'monthly' && shouldShowGoalByRutinaProgramming(g));
+  const yearly = goals.filter(g => g.category === 'yearly' && shouldShowGoalByRutinaProgramming(g));
 
   const completedOf = (arr: typeof goals) => {
     const applicableGoals = arr.filter(isGoalApplicableToday);
@@ -366,8 +434,19 @@ export default function Goals() {
     setGoals(updatedGoals);
     setAllGoalsMapped(prev => prev.map(g => g.id === id ? { ...g, completed: newCompleted, completedAt } : g));
 
-    void persistGoalUpdate(id, { completed: newCompleted, completedAt });
+    const request = goal.recurring
+      ? (newCompleted
+          ? goalsAPI.completeGoalForDate(id, todayKey)
+          : goalsAPI.uncompleteGoalForDate(id, todayKey))
+      : persistGoalUpdate(id, { completed: newCompleted, completedAt });
     syncRutinaCompletionForGoal(id, updatedGoals);
+
+    void Promise.resolve(request).catch(error => {
+      console.error('Error toggling goal completion:', error);
+      setGoals(prev => prev.map(g => g.id === id ? { ...g, completed: goal.completed, completedAt: goal.completedAt } : g));
+      setAllGoalsMapped(prev => prev.map(g => g.id === id ? { ...g, completed: goal.completed, completedAt: goal.completedAt } : g));
+      syncRutinaCompletionForGoal(id, goals);
+    });
 
     // Auto-completar/descompletar rutinas según estado de sus objetivos
   };
@@ -441,6 +520,7 @@ export default function Goals() {
       
       try {
         await goalsAPI.updateGoal(editingGoal.id, updatePayload);
+        await syncGoalRutinaLink(editingGoal.id, data.recurring ? data.linkedRutinaId : undefined);
         setGoals(prev => prev.map(g => g.id === editingGoal.id ? {
           ...g,
           title: data.title,
@@ -543,6 +623,7 @@ export default function Goals() {
       try {
         const createdGoal = await goalsAPI.createGoal(createPayload);
         console.log('✅ Goal created:', createdGoal);
+        await syncGoalRutinaLink(createdGoal.id, data.recurring ? data.linkedRutinaId : undefined);
         
         // Crear subobjetivos nuevos en el backend
         const newSubGoals: SubGoal[] = [];
@@ -821,9 +902,10 @@ export default function Goals() {
     }
   };
 
-  const visibleGoals = showSkipped
+  const visibleGoals = (showSkipped
     ? filtered
-    : filtered.filter(g => !isGoalSkippedToday(g));
+    : filtered.filter(g => !isGoalSkippedToday(g))
+  ).filter(shouldShowGoalByRutinaProgramming);
 
   const sorted = [...visibleGoals].sort((a, b) => {
     if (isGoalSkippedToday(a) !== isGoalSkippedToday(b)) return isGoalSkippedToday(a) ? 1 : -1;
@@ -835,7 +917,9 @@ export default function Goals() {
     return 0;
   });
 
-  const skippedInCurrentTab = filtered.filter(isGoalSkippedToday).length;
+  const skippedInCurrentTab = filtered
+    .filter(shouldShowGoalByRutinaProgramming)
+    .filter(isGoalSkippedToday).length;
 
   useEffect(() => {
     if (todayAsignaciones.length === 0 || goals.length === 0) return;
@@ -1075,6 +1159,7 @@ export default function Goals() {
         onOpenChange={setModalOpen}
         goal={editingGoal}
         goals={goals}
+        rutinas={rutinasCatalog}
         folders={folders}
         onFoldersChange={setFolders}
         onSave={handleSave}

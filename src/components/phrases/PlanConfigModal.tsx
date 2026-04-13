@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { X, Shuffle, Hash, EyeOff, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { EyeOff, Hash, Loader2, Shuffle, X } from 'lucide-react';
 import { phrasesAPI } from '@/services/api';
-import type { ReviewPlanConfig } from '@/services/api';
+import type { ReviewPlanConfig, ReviewPlanUpdatePayload } from '@/services/api';
 import type { Phrase, PhraseCategory } from '@/types';
 
 interface ReviewPlan {
@@ -16,7 +16,7 @@ interface PlanConfigModalProps {
   onOpenChange: (open: boolean) => void;
   plan: ReviewPlan;
   categories: PhraseCategory[];
-  onSave: (planId: number, config: ReviewPlanConfig) => Promise<void>;
+  onSave: (planId: number, payload: ReviewPlanUpdatePayload) => Promise<void>;
 }
 
 const mapBackendPhrase = (item: any): Phrase => ({
@@ -33,29 +33,64 @@ const mapBackendPhrase = (item: any): Phrase => ({
 });
 
 export default function PlanConfigModal({ open, onOpenChange, plan, categories, onSave }: PlanConfigModalProps) {
+  const [planName, setPlanName] = useState(plan.name);
+  const [targets, setTargets] = useState<string[]>(plan.targets);
+  const [targetToAdd, setTargetToAdd] = useState('');
   const [config, setConfig] = useState<ReviewPlanConfig>({ ...plan.config });
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [loadingPhrases, setLoadingPhrases] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Sincronizar config cuando cambia el plan o se abre el modal
   useEffect(() => {
-    if (open) {
-      setConfig({
-        shuffle: plan.config.shuffle ?? false,
-        daily_limit: plan.config.daily_limit ?? null,
-        excluded_phrase_ids: plan.config.excluded_phrase_ids ?? [],
-      });
-      fetchPhrases();
-    }
-  }, [open, plan.id]);
+    if (!open) return;
 
-  const fetchPhrases = async () => {
+    setPlanName(plan.name);
+    setTargets(plan.targets);
+    setTargetToAdd('');
+    setConfig({
+      shuffle: plan.config.shuffle ?? false,
+      daily_limit: plan.config.daily_limit ?? null,
+      excluded_phrase_ids: plan.config.excluded_phrase_ids ?? [],
+    });
+  }, [open, plan]);
+
+  useEffect(() => {
+    if (!open) return;
+    void fetchPhrases(targets);
+  }, [open, targets]);
+
+  const studyTargets = useMemo(() => categories
+    .filter(category => category.active)
+    .flatMap(category => [
+      { value: `cat:${category.id}`, label: `Categoria: ${category.name}` },
+      ...category.subcategories
+        .filter(sub => sub.active)
+        .map(sub => ({
+          value: `sub:${category.id}:${sub.id}`,
+          label: `Subcategoria: ${category.name} / ${sub.name}`,
+        })),
+    ]), [categories]);
+
+  const targetLabel = (target: string) => {
+    const [type, categoryId, subcategoryId] = target.split(':');
+    const category = categories.find(item => item.id === categoryId);
+
+    if (type === 'cat') {
+      return category ? `Categoria: ${category.name}` : 'Categoria';
+    }
+
+    const subcategory = category?.subcategories.find(item => item.id === subcategoryId);
+    return category && subcategory
+      ? `Subcategoria: ${category.name} / ${subcategory.name}`
+      : 'Subcategoria';
+  };
+
+  const fetchPhrases = async (planTargets: string[]) => {
     setLoadingPhrases(true);
     const byId = new Map<string, Phrase>();
 
     try {
-      for (const target of plan.targets) {
+      for (const target of planTargets) {
         const [type, categoryId, subcategoryId] = target.split(':');
         let page = 1;
         let totalPages = 1;
@@ -68,21 +103,30 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
             type === 'sub' ? subcategoryId : undefined,
             true,
           );
-          response.items.map(mapBackendPhrase).forEach(p => byId.set(p.id, p));
+          response.items.map(mapBackendPhrase).forEach(phrase => byId.set(phrase.id, phrase));
           totalPages = response.pages || 1;
           page += 1;
         } while (page <= totalPages);
       }
-    } catch (err) {
-      console.error('Error loading phrases for plan config:', err);
+    } catch (error) {
+      console.error('Error loading phrases for plan config:', error);
     }
 
     setPhrases(Array.from(byId.values()));
     setLoadingPhrases(false);
   };
 
-  const isExcluded = (phraseId: string) =>
-    config.excluded_phrase_ids.includes(Number(phraseId));
+  const addTarget = () => {
+    if (!targetToAdd || targets.includes(targetToAdd)) return;
+    setTargets(prev => [...prev, targetToAdd]);
+    setTargetToAdd('');
+  };
+
+  const removeTarget = (target: string) => {
+    setTargets(prev => prev.filter(item => item !== target));
+  };
+
+  const isExcluded = (phraseId: string) => config.excluded_phrase_ids.includes(Number(phraseId));
 
   const togglePhrase = (phraseId: string) => {
     const numId = Number(phraseId);
@@ -97,14 +141,28 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
   const toggleAll = (exclude: boolean) => {
     setConfig(prev => ({
       ...prev,
-      excluded_phrase_ids: exclude ? phrases.map(p => Number(p.id)) : [],
+      excluded_phrase_ids: exclude ? phrases.map(phrase => Number(phrase.id)) : [],
     }));
   };
 
   const handleSave = async () => {
+    if (!planName.trim()) {
+      alert('El nombre del plan es obligatorio.');
+      return;
+    }
+
+    if (targets.length === 0) {
+      alert('Agrega al menos una categoria o subcategoria al plan.');
+      return;
+    }
+
     setSaving(true);
     try {
-      await onSave(plan.id, config);
+      await onSave(plan.id, {
+        name: planName.trim(),
+        targets,
+        config,
+      });
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -112,7 +170,7 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
   };
 
   const activeCount = phrases.length - config.excluded_phrase_ids.filter(
-    id => phrases.some(p => Number(p.id) === id)
+    id => phrases.some(phrase => Number(phrase.id) === id),
   ).length;
 
   if (!open) return null;
@@ -121,64 +179,119 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
     <div className="fixed inset-0 z-[300] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => onOpenChange(false)} />
 
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-card border border-border rounded-2xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-base font-semibold text-foreground">Configuración del plan</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">{plan.name}</p>
+            <h2 className="text-base font-semibold text-foreground">Editar plan de repaso</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">{plan.name}</p>
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+            className="rounded-lg p-1.5 transition-colors hover:bg-muted"
           >
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
 
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-
-          {/* Sección: Comportamiento de sesión */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Comportamiento de sesión
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Estructura del plan
             </h3>
 
-            {/* Shuffle */}
-            <label className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3 cursor-pointer hover:bg-muted/40 transition-colors">
+            <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground">Nombre</label>
+                <input
+                  type="text"
+                  value={planName}
+                  onChange={(event) => setPlanName(event.target.value)}
+                  placeholder="Nombre de la planificacion"
+                  className="w-full rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+                <select
+                  value={targetToAdd}
+                  onChange={(event) => setTargetToAdd(event.target.value)}
+                  className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Selecciona categoria o subcategoria</option>
+                  {studyTargets.map(target => (
+                    <option key={target.value} value={target.value}>{target.label}</option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={addTarget}
+                  disabled={!targetToAdd}
+                  className="inline-flex items-center justify-center rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  Agregar
+                </button>
+              </div>
+
+              {targets.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {targets.map(target => (
+                    <span key={target} className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                      {targetLabel(target)}
+                      <button
+                        onClick={() => removeTarget(target)}
+                        className="text-primary/80 hover:text-primary"
+                        aria-label={`Quitar ${targetLabel(target)}`}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Este plan todavia no tiene categorias o subcategorias asociadas.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Comportamiento de sesion
+            </h3>
+
+            <label className="flex cursor-pointer items-center justify-between rounded-xl border border-border bg-background px-4 py-3 transition-colors hover:bg-muted/40">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/10">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
                   <Shuffle className="h-4 w-4 text-primary" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">Orden aleatorio</p>
-                  <p className="text-xs text-muted-foreground">Mezcla las frases en cada sesión</p>
+                  <p className="text-xs text-muted-foreground">Mezcla las frases en cada sesion</p>
                 </div>
               </div>
               <div
                 onClick={() => setConfig(prev => ({ ...prev, shuffle: !prev.shuffle }))}
-                className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${
+                className={`relative h-5 w-10 flex-shrink-0 rounded-full transition-colors ${
                   config.shuffle ? 'bg-primary' : 'bg-muted'
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
                     config.shuffle ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </div>
             </label>
 
-            {/* Límite por sesión */}
             <div className="flex items-center justify-between rounded-xl border border-border bg-background px-4 py-3">
               <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-amber-500/10">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10">
                   <Hash className="h-4 w-4 text-amber-500" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Límite por sesión</p>
-                  <p className="text-xs text-muted-foreground">Máximo de frases a repasar. Vacío = sin límite</p>
+                  <p className="text-sm font-medium text-foreground">Limite por sesion</p>
+                  <p className="text-xs text-muted-foreground">Maximo de frases a repasar. Vacio = sin limite</p>
                 </div>
               </div>
               <input
@@ -186,19 +299,18 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
                 min={1}
                 placeholder="∞"
                 value={config.daily_limit ?? ''}
-                onChange={e => {
-                  const val = e.target.value;
-                  setConfig(prev => ({ ...prev, daily_limit: val === '' ? null : Number(val) }));
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setConfig(prev => ({ ...prev, daily_limit: value === '' ? null : Number(value) }));
                 }}
-                className="w-20 rounded-lg border border-border bg-muted px-3 py-1.5 text-sm text-center text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-20 rounded-lg border border-border bg-muted px-3 py-1.5 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           </section>
 
-          {/* Sección: Frases del plan */}
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Frases del plan
               </h3>
               {phrases.length > 0 && (
@@ -206,16 +318,10 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
                   <span className="text-xs text-muted-foreground">
                     {activeCount} activas de {phrases.length}
                   </span>
-                  <button
-                    onClick={() => toggleAll(false)}
-                    className="text-xs text-primary hover:underline"
-                  >
+                  <button onClick={() => toggleAll(false)} className="text-xs text-primary hover:underline">
                     Activar todas
                   </button>
-                  <button
-                    onClick={() => toggleAll(true)}
-                    className="text-xs text-muted-foreground hover:underline"
-                  >
+                  <button onClick={() => toggleAll(true)} className="text-xs text-muted-foreground hover:underline">
                     Desactivar todas
                   </button>
                 </div>
@@ -224,23 +330,24 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
 
             {loadingPhrases ? (
               <div className="flex items-center justify-center py-10 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                 <span className="text-sm">Cargando frases...</span>
               </div>
             ) : phrases.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No hay frases activas en este plan.
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No hay frases activas en este plan con la seleccion actual.
               </p>
             ) : (
-              <div className="rounded-xl border border-border overflow-hidden divide-y divide-border">
+              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">
                 {phrases.map(phrase => {
                   const excluded = isExcluded(phrase.id);
-                  const category = categories.find(c => c.id === phrase.categoryId);
-                  const subcategory = category?.subcategories.find(s => s.id === phrase.subcategoryId);
+                  const category = categories.find(item => item.id === phrase.categoryId);
+                  const subcategory = category?.subcategories.find(item => item.id === phrase.subcategoryId);
+
                   return (
                     <label
                       key={phrase.id}
-                      className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors ${
+                      className={`flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors ${
                         excluded ? 'bg-muted/60 opacity-50' : 'bg-background hover:bg-muted/30'
                       }`}
                     >
@@ -248,19 +355,19 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
                         type="checkbox"
                         checked={!excluded}
                         onChange={() => togglePhrase(phrase.id)}
-                        className="mt-0.5 h-4 w-4 rounded border-border accent-primary flex-shrink-0"
+                        className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-border accent-primary"
                       />
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm leading-snug ${excluded ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm leading-snug ${excluded ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                           {phrase.text}
                         </p>
                         {(category || subcategory) && (
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
                             {category?.name}{subcategory ? ` / ${subcategory.name}` : ''}
                           </p>
                         )}
                       </div>
-                      {excluded && <EyeOff className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />}
+                      {excluded && <EyeOff className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />}
                     </label>
                   );
                 })}
@@ -269,21 +376,20 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
           </section>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border">
+        <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
           <button
             onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
             Cancelar
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-5 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Guardar configuración
+            Guardar cambios
           </button>
         </div>
       </div>

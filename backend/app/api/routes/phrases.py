@@ -19,10 +19,12 @@ from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService, build_phrase_report
 )
 from app.services.email_service import build_html_phrase_report, send_weekly_report
-from app.services.elevenlabs_service import (
-    ElevenLabsServiceError,
+from app.services.tts_service import (
+    TTSServiceError,
     get_tts_status,
     synthesize_text,
+    get_audio_preferences,
+    update_audio_preferences,
 )
 from app.services.report_scheduler_service import record_report_event
 from app.models.models import ReviewPlan, Phrase as PhraseModel
@@ -39,6 +41,15 @@ router = APIRouter(prefix="/api/phrases", tags=["phrases"])
 
 class PhraseAudioRequest(BaseModel):
     text: str
+    rate: float | None = None
+    pitch: float | None = None
+
+
+class PhraseAudioPreferencesPayload(BaseModel):
+    selected_voice_name: str | None = None
+    rate: float | None = None
+    pitch: float | None = None
+    pause_ms: int | None = None
 
 
 # ==================== PHRASE CATEGORIES ====================
@@ -338,12 +349,44 @@ def get_phrase_audio_status():
     return get_tts_status()
 
 
+@router.get("/audio/preferences", response_model=dict)
+def get_phrase_audio_preferences(db: Session = Depends(get_db)):
+    """Retorna las preferencias persistidas del audio de frases."""
+    prefs = get_audio_preferences(db)
+    return {
+        "selected_voice_name": prefs.selected_voice_name,
+        "rate": prefs.rate,
+        "pitch": prefs.pitch,
+        "pause_ms": prefs.pause_ms,
+        "updated_at": prefs.fecha_actualizacion.isoformat() if prefs.fecha_actualizacion else None,
+    }
+
+
+@router.patch("/audio/preferences", response_model=dict)
+def patch_phrase_audio_preferences(payload: PhraseAudioPreferencesPayload, db: Session = Depends(get_db)):
+    """Actualiza las preferencias persistidas del audio de frases."""
+    prefs = update_audio_preferences(
+        db,
+        selected_voice_name=payload.selected_voice_name,
+        rate=payload.rate,
+        pitch=payload.pitch,
+        pause_ms=payload.pause_ms,
+    )
+    return {
+        "selected_voice_name": prefs.selected_voice_name,
+        "rate": prefs.rate,
+        "pitch": prefs.pitch,
+        "pause_ms": prefs.pause_ms,
+        "updated_at": prefs.fecha_actualizacion.isoformat() if prefs.fecha_actualizacion else None,
+    }
+
+
 @router.post("/audio/generate")
 def generate_phrase_audio(payload: PhraseAudioRequest):
-    """Genera audio MP3 de una frase usando ElevenLabs cuando este configurado."""
+    """Genera audio MP3 usando el proveedor TTS activo."""
     try:
-        audio_bytes = synthesize_text(payload.text)
-    except ElevenLabsServiceError as exc:
+        audio_bytes = synthesize_text(payload.text, rate=payload.rate, pitch=payload.pitch)
+    except TTSServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return StreamingResponse(

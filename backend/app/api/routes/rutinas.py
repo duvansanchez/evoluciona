@@ -3,17 +3,24 @@ Endpoints para rutinas diarias.
 """
 
 import json
+from datetime import date, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
+
 from app.db.database import get_db
 from app.models.models import Rutina, RutinaBloque, RutinaAsignacion, Goal
+from app.services.email_service import build_html_rutina_report, send_weekly_report
+from app.services.goal_service import GoalService
+from app.services.report_scheduler_service import record_report_event
+from app.services.rutina_report_service import build_rutina_report
 from app.schemas.schemas import (
     RutinaCreate, RutinaUpdate, RutinaResponse,
     RutinaAsignacionCreate, RutinaAsignacionUpdate, RutinaAsignacionResponse,
     DiaSemanaResponse,
 )
 from typing import List
-from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/api/rutinas", tags=["rutinas"])
 
@@ -149,9 +156,10 @@ def get_semana(
 @router.get("/objetivos-recurrentes")
 def get_objetivos_recurrentes(db: Session = Depends(get_db)):
     """Listar objetivos recurrentes disponibles para asociar a una rutina."""
+    GoalService.reset_stale_recurring_goals(db)
     goals = (
         db.query(Goal)
-        .filter(Goal.recurrente == True, Goal.completado == False)
+        .filter(Goal.recurrente == True)
         .order_by(Goal.titulo)
         .all()
     )
@@ -178,6 +186,104 @@ def get_historial(
         .all()
     )
     return [_asignacion_to_dict(a) for a in asignaciones]
+
+
+def _parse_reference_date(reference_date: str | None) -> date | None:
+    if not reference_date:
+        return None
+    try:
+        return date.fromisoformat(reference_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="reference_date debe usar formato YYYY-MM-DD") from exc
+
+
+@router.get("/report")
+def get_rutina_report(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Obtener informe semanal o mensual del modulo de rutinas."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+    return build_rutina_report(db, normalized_mode, _parse_reference_date(reference_date))
+
+
+@router.post("/report/send-email")
+def send_rutina_report_email(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Enviar el informe de rutinas por Gmail."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    data = build_rutina_report(db, normalized_mode, _parse_reference_date(reference_date))
+    html = build_html_rutina_report(data)
+    mode_label = "Semanal" if normalized_mode == "weekly" else "Mensual"
+    subject = f"Informe de Rutinas {mode_label} - {data['period_label']}"
+    ok = send_weekly_report(html, subject)
+
+    report_type = f"rutinas_{normalized_mode}"
+    if not ok:
+        record_report_event(
+            report_type=report_type,
+            status="failed",
+            week_label=data["period_label"],
+            source="manual",
+            details={
+                "total_assignments": data["total_assignments"],
+                "completed_assignments": data["completed_assignments"],
+                "completion_rate": data["completion_rate"],
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo enviar el informe de rutinas. Verifica GMAIL_USER y GMAIL_APP_PASSWORD en .env",
+        )
+
+    record_report_event(
+        report_type=report_type,
+        status="sent",
+        week_label=data["period_label"],
+        source="manual",
+        details={
+            "total_assignments": data["total_assignments"],
+            "completed_assignments": data["completed_assignments"],
+            "completion_rate": data["completion_rate"],
+        },
+    )
+    return {
+        "message": "Informe de rutinas enviado correctamente",
+        "period_label": data["period_label"],
+        "total_assignments": data["total_assignments"],
+        "completed_assignments": data["completed_assignments"],
+        "completion_rate": data["completion_rate"],
+    }
+
+
+@router.get("/report/download")
+def download_rutina_report(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Descargar el informe de rutinas en HTML."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    data = build_rutina_report(db, normalized_mode, _parse_reference_date(reference_date))
+    html = build_html_rutina_report(data)
+    filename = f"informe-rutinas-{normalized_mode}-{data['period_start']}_{data['period_end']}.html"
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{rutina_id}", response_model=RutinaResponse)

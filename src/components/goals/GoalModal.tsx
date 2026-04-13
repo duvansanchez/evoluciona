@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { CalendarDays, CheckSquare, ChevronDown, Edit2, FolderOpen, GripVertical, Info, ListChecks, Plus, PlusCircle, Settings2, Trash2, X } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import type { Goal, GoalCategory, GoalFolder, GoalPriority, DayPart, SubGoal } from '@/types';
+import type { Rutina } from '@/services/api';
 import GoalFoldersModal from './GoalFoldersModal';
 
 interface GoalFormData {
@@ -20,6 +21,7 @@ interface GoalFormData {
   reward: string;
   dayPart: DayPart | 'none';
   recurring: boolean;
+  linkedRutinaId: string;
   isParent: boolean;
   scheduledType: 'today' | 'tomorrow' | 'specific';
   scheduledDate: string;
@@ -40,6 +42,7 @@ const defaultForm: GoalFormData = {
   reward: '',
   dayPart: 'none',
   recurring: false,
+  linkedRutinaId: '',
   isParent: false,
   scheduledType: 'today',
   scheduledDate: '',
@@ -51,6 +54,7 @@ interface GoalModalProps {
   onOpenChange: (open: boolean) => void;
   goal?: Goal | null;
   goals: Goal[];
+  rutinas: Rutina[];
   folders: GoalFolder[];
   onFoldersChange: (folders: GoalFolder[]) => void;
   onSave: (data: GoalFormData) => void;
@@ -62,7 +66,7 @@ const priorityDot: Record<string, string> = {
   low: 'bg-priority-low',
 };
 
-export default function GoalModal({ open, onOpenChange, goal, goals, folders, onFoldersChange, onSave }: GoalModalProps) {
+export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, folders, onFoldersChange, onSave }: GoalModalProps) {
   const isEditing = !!goal;
   const [form, setForm] = useState<GoalFormData>(defaultForm);
   const [newSubGoalTitle, setNewSubGoalTitle] = useState('');
@@ -88,6 +92,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, folders, on
         reward: goal.reward || '',
         dayPart: goal.dayPart || 'none',
         recurring: goal.recurring,
+        linkedRutinaId: rutinas.find(r => r.objetivos.some(obj => obj.id.toString() === goal.id))?.id.toString() || '',
         isParent: goal.isParent,
         scheduledType: goal.scheduledFor ? 'specific' : 'today',
         scheduledDate: goal.scheduledFor || '',
@@ -101,7 +106,13 @@ export default function GoalModal({ open, onOpenChange, goal, goals, folders, on
       setShowRelationsSection(false);
     }
     setNewSubGoalTitle('');
-  }, [goal, open]);
+  }, [goal, open, rutinas]);
+
+  useEffect(() => {
+    if (!form.recurring && form.linkedRutinaId) {
+      update('linkedRutinaId', '');
+    }
+  }, [form.recurring]);
 
   const update = <K extends keyof GoalFormData>(key: K, value: GoalFormData[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -364,6 +375,27 @@ export default function GoalModal({ open, onOpenChange, goal, goals, folders, on
                     <p className="text-xs text-muted-foreground mt-0.5">El objetivo se repetirá según la frecuencia establecida</p>
                   </div>
                 </label>
+                {form.recurring && (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <FieldGroup label="Rutina vinculada (opcional)">
+                      <select
+                        value={form.linkedRutinaId}
+                        onChange={e => update('linkedRutinaId', e.target.value)}
+                        className="modal-input"
+                      >
+                        <option value="">Sin rutina vinculada</option>
+                        {rutinas.map(r => (
+                          <option key={r.id} value={r.id}>
+                            {r.nombre} · {r.parte_dia === 'morning' ? 'Mañana' : r.parte_dia === 'afternoon' ? 'Tarde' : 'Noche'}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Si vinculas este objetivo a una rutina, solo aparecerá en Objetivos cuando esa rutina esté programada para hoy.
+                      </p>
+                    </FieldGroup>
+                  </div>
+                )}
                 <label className="flex items-start gap-3 cursor-pointer group p-3 rounded-xl hover:bg-muted/50 transition-colors">
                   <input 
                     type="checkbox" 
@@ -377,6 +409,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, folders, on
                   </div>
                 </label>
               </div>
+
             </div>
           </CollapsibleSection>
 

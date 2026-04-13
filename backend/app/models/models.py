@@ -93,6 +93,7 @@ class Goal(Base):
     )
     parent = relationship("Goal", back_populates="subgoals", remote_side=[objetivo_padre_id])
     skip_days = relationship("GoalSkipDay", back_populates="goal", cascade="all, delete-orphan")
+    completion_days = relationship("GoalCompletionDay", back_populates="goal", cascade="all, delete-orphan")
 
 
 class GoalSkipDay(Base):
@@ -108,6 +109,21 @@ class GoalSkipDay(Base):
     fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
 
     goal = relationship("Goal", back_populates="skip_days")
+
+
+class GoalCompletionDay(Base):
+    """Historial diario de completado para objetivos recurrentes."""
+    __tablename__ = "objetivo_completado_dias"
+    __table_args__ = (
+        UniqueConstraint("objetivo_id", "fecha", name="uq_objetivo_completado_dia"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    objetivo_id = Column(Integer, ForeignKey("objetivos.id"), nullable=False)
+    fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
+
+    goal = relationship("Goal", back_populates="completion_days")
 
 
 class GoalFolder(Base):
@@ -173,6 +189,18 @@ class PhraseReviewLog(Base):
 
     phrase = relationship("Phrase", back_populates="review_logs", foreign_keys=[phrase_id])
     review_plan = relationship("ReviewPlan", foreign_keys=[review_plan_id])
+
+
+class PhraseAudioPreference(Base):
+    """Preferencias globales del modulo de audio para frases."""
+    __tablename__ = "frase_audio_preferencias"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    selected_voice_name = Column(String(255), nullable=True)
+    rate = Column(Float, nullable=False, default=1.0)
+    pitch = Column(Float, nullable=False, default=1.0)
+    pause_ms = Column(Integer, nullable=False, default=700)
+    fecha_actualizacion = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now)
 
 
 class Question(Base):
@@ -355,3 +383,18 @@ class ReviewPlan(Base):
     targets = Column(Text, nullable=False)  # JSON array de strings
     config = Column(Text, nullable=True)    # JSON: { shuffle, daily_limit, excluded_phrase_ids }
     fecha_creacion = Column(DateTime, nullable=True)
+
+
+class WeeklyConclusion(Base):
+    """Conclusiones semanales guardadas desde el modulo de progreso."""
+    __tablename__ = "weekly_conclusions"
+    __table_args__ = (
+        UniqueConstraint("week_start", name="uq_weekly_conclusions_week_start"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    week_start = Column(String(10), nullable=False)  # YYYY-MM-DD
+    week_end = Column(String(10), nullable=False)    # YYYY-MM-DD
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=True, default=datetime.now)
+    updated_at = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now)

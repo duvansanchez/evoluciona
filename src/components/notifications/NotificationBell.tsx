@@ -1,9 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { Bell, X, Quote, Target, CalendarDays, Sunrise, Sunset, CheckCircle2 } from 'lucide-react';
 import { phrasesAPI, goalsAPI } from '@/services/api';
-import { isBellUnread, markBellRead, getReadState, getCurrentInterval } from './notificationState';
+import {
+  isBellUnread,
+  markBellRead,
+  getReadState,
+  getCurrentInterval,
+  requestWelcomeModalOpen,
+} from './notificationState';
 
-type GoalItem = { titulo: string; categoria: string; completado: boolean; recurrente?: boolean; fecha_creacion?: string };
+type GoalItem = {
+  titulo: string;
+  categoria: string;
+  completado: boolean;
+  recurrente?: boolean;
+  fecha_creacion?: string;
+  fecha_completado?: string | null;
+};
 
 function normalizeCategory(cat: string | null | undefined): string {
   const c = (cat ?? '').toLowerCase().trim();
@@ -35,6 +48,24 @@ function shouldShowGoal(item: GoalItem, normalizedCategory: string): boolean {
     return fechaCreacion >= inicio && fechaCreacion < fin;
   }
 
+  return true;
+}
+
+function isCompletedToday(completedAt?: string | null): boolean {
+  if (!completedAt) return false;
+
+  const parsedDate = new Date(completedAt);
+  if (Number.isNaN(parsedDate.getTime())) return false;
+
+  const localDate = `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  return localDate === todayKey;
+}
+
+function isGoalEffectivelyCompleted(goal: GoalItem): boolean {
+  if (goal.completado !== true) return false;
+  if (goal.recurrente === true) return isCompletedToday(goal.fecha_completado);
   return true;
 }
 
@@ -79,11 +110,11 @@ export default function NotificationBell() {
       const goals: GoalItem[] = goalsRes.items;
       setWeeklyGoals(goals.filter(g => {
         const cat = normalizeCategory(g.categoria);
-        return cat === 'weekly' && !g.completado && shouldShowGoal(g, cat);
+        return cat === 'weekly' && !isGoalEffectivelyCompleted(g) && shouldShowGoal(g, cat);
       }));
       setMonthlyGoals(goals.filter(g => {
         const cat = normalizeCategory(g.categoria);
-        return cat === 'monthly' && !g.completado && shouldShowGoal(g, cat);
+        return cat === 'monthly' && !isGoalEffectivelyCompleted(g) && shouldShowGoal(g, cat);
       }));
       setLoaded(true);
     } catch (err) {
@@ -100,6 +131,11 @@ export default function NotificationBell() {
       setUnread(false);
       setReadState(getReadState());
     }
+  };
+
+  const handleOpenWelcomeModal = () => {
+    requestWelcomeModalOpen();
+    setOpen(false);
   };
 
   const hasPending = weeklyGoals.length > 0 || monthlyGoals.length > 0;
@@ -165,6 +201,16 @@ export default function NotificationBell() {
                   weeklyGoals={weeklyGoals}
                   monthlyGoals={monthlyGoals}
                 />
+
+                {hasPending && (
+                  <button
+                    type="button"
+                    onClick={handleOpenWelcomeModal}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                  >
+                    Ver modal del día
+                  </button>
+                )}
 
                 {!phrase && !hasPending && (
                   <p className="text-sm text-muted-foreground text-center py-4">Sin objetivos pendientes</p>

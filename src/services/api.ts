@@ -3,6 +3,8 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const FINANCE_HUB_API_URL = import.meta.env.VITE_FINANCE_HUB_API_URL || 'http://localhost:3005/api';
+const MINDFUL_STUDY_API_URL = import.meta.env.VITE_MINDFUL_STUDY_API_URL || 'http://localhost:3002/api';
 
 // Tipos para respuestas paginadas
 interface PaginatedResponse<T> {
@@ -29,6 +31,12 @@ export const goalsAPI = {
     return response.json() as Promise<number[]>;
   },
 
+  getCompletedGoals: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/completions?fecha=${date}`);
+    if (!response.ok) throw new Error('Error fetching completed goals');
+    return response.json() as Promise<Array<{ goal_id: number; fecha: string; completed_at?: string }>>;
+  },
+
   skipGoalForDate: async (goalId: number | string, date: string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
       method: 'POST',
@@ -42,6 +50,22 @@ export const goalsAPI = {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Error removing skipped goal for date');
+    return response.json();
+  },
+
+  completeGoalForDate: async (goalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}/complete?fecha=${date}`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Error completing recurring goal for date');
+    return response.json() as Promise<{ goal_id: number; fecha: string; completed_at?: string }>;
+  },
+
+  uncompleteGoalForDate: async (goalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/${goalId}/complete?fecha=${date}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error removing recurring goal completion for date');
     return response.json();
   },
   
@@ -310,17 +334,49 @@ export const phrasesAPI = {
     return response.json();
   },
 
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
+    let url = `${API_BASE_URL}/phrases/report/download?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error downloading phrase report');
+    }
+    return response.blob();
+  },
+
   getAudioStatus: async () => {
     const response = await fetch(`${API_BASE_URL}/phrases/audio/status`);
     if (!response.ok) throw new Error('Error fetching phrase audio status');
     return response.json() as Promise<PhraseAudioStatus>;
   },
 
-  generateAudio: async (text: string) => {
+  getAudioPreferences: async () => {
+    const response = await fetch(`${API_BASE_URL}/phrases/audio/preferences`);
+    if (!response.ok) throw new Error('Error fetching phrase audio preferences');
+    return response.json() as Promise<PhraseAudioPreferences>;
+  },
+
+  updateAudioPreferences: async (payload: Partial<PhraseAudioPreferences>) => {
+    const response = await fetch(`${API_BASE_URL}/phrases/audio/preferences`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) throw new Error('Error updating phrase audio preferences');
+    return response.json() as Promise<PhraseAudioPreferences>;
+  },
+
+  generateAudio: async (text: string, options?: { rate?: number; pitch?: number }) => {
     const response = await fetch(`${API_BASE_URL}/phrases/audio/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        rate: options?.rate,
+        pitch: options?.pitch,
+      }),
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -541,7 +597,90 @@ export const reportsAPI = {
     }
     return response.json();
   },
+
+  downloadCurrentWeekReport: async () => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-week`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error downloading current week report');
+    }
+    return response.blob();
+  },
+  downloadPreviousWeekReport: async (weekOf?: string) => {
+    let url = `${API_BASE_URL}/reports/download-weekly`;
+    if (weekOf) url += `?week_of=${weekOf}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error downloading previous week report');
+    }
+    return response.blob();
+  },
+  downloadCurrentMonthReport: async () => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-month`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error downloading current month report');
+    }
+    return response.blob();
+  },
+  downloadPreviousMonthReport: async (monthOf?: string) => {
+    let url = `${API_BASE_URL}/reports/download-monthly`;
+    if (monthOf) url += `?month_of=${monthOf}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error downloading previous month report');
+    }
+    return response.blob();
+  },
+  getWeeklyConclusion: async (referenceDate?: string) => {
+    let url = `${API_BASE_URL}/reports/weekly-conclusions`;
+    if (referenceDate) url += `?reference_date=${referenceDate}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Error fetching weekly conclusion');
+    return response.json() as Promise<WeeklyConclusion>;
+  },
+  getWeeklyConclusionsHistory: async (limit = 8) => {
+    const response = await fetch(`${API_BASE_URL}/reports/weekly-conclusions/history?limit=${limit}`);
+    if (!response.ok) throw new Error('Error fetching weekly conclusions history');
+    return response.json() as Promise<WeeklyConclusion[]>;
+  },
+  saveWeeklyConclusion: async (referenceDate: string, content: string) => {
+    const response = await fetch(`${API_BASE_URL}/reports/weekly-conclusions`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reference_date: referenceDate, content }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error saving weekly conclusion');
+    }
+    return response.json() as Promise<WeeklyConclusion>;
+  },
+  deleteWeeklyConclusion: async (referenceDate: string) => {
+    const response = await fetch(`${API_BASE_URL}/reports/weekly-conclusions?reference_date=${referenceDate}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error deleting weekly conclusion');
+    }
+    return response.json() as Promise<{ message: string; week_start: string; week_end: string }>;
+  },
 };
+
+export interface WeeklyConclusion {
+  id?: number | null;
+  week_start: string;
+  week_end: string;
+  period_label: string;
+  content: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
 
 export interface PhraseReportPhraseItem {
   id: number;
@@ -591,10 +730,18 @@ export interface PhraseReportData {
 
 export interface PhraseAudioStatus {
   enabled: boolean;
-  provider: 'browser' | 'elevenlabs';
+  provider: 'browser' | 'elevenlabs' | 'edge';
   voice_id?: string | null;
   voice_name?: string | null;
   model_id?: string | null;
+}
+
+export interface PhraseAudioPreferences {
+  selected_voice_name: string | null;
+  rate: number;
+  pitch: number;
+  pause_ms: number;
+  updated_at?: string | null;
 }
 
 export interface ReviewPlanConfig {
@@ -609,6 +756,12 @@ export interface ReviewPlanData {
   targets: string[];
   config: ReviewPlanConfig;
   created_at?: string;
+}
+
+export interface ReviewPlanUpdatePayload {
+  name?: string;
+  targets?: string[];
+  config?: ReviewPlanConfig;
 }
 
 /**
@@ -631,13 +784,13 @@ export const reviewPlansAPI = {
     return response.json();
   },
 
-  updatePlan: async (id: number, config: ReviewPlanConfig): Promise<ReviewPlanData> => {
+  updatePlan: async (id: number, data: ReviewPlanUpdatePayload): Promise<ReviewPlanData> => {
     const response = await fetch(`${API_BASE_URL}/phrases/review-plans/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config }),
+      body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Error updating review plan config');
+    if (!response.ok) throw new Error('Error updating review plan');
     return response.json();
   },
 
@@ -695,6 +848,139 @@ export interface RutinaAsignacion {
 export interface DiaSemana {
   fecha: string;
   asignaciones: RutinaAsignacion[];
+}
+
+export interface RutinaReportRoutineItem {
+  id: number;
+  name: string;
+  day_part?: string | null;
+  assigned: number;
+  completed: number;
+  completion_rate: number;
+}
+
+export interface RutinaReportDayPartItem {
+  day_part: string;
+  label: string;
+  assigned: number;
+  completed: number;
+  completion_rate: number;
+}
+
+export interface RutinaReportDayItem {
+  date: string;
+  weekday: string;
+  assigned: number;
+  completed: number;
+  completion_rate: number;
+  day_parts: Array<{
+    day_part: string;
+    label: string;
+    assigned: number;
+    completed: number;
+  }>;
+}
+
+export interface RutinaReportGoalLogGoalItem {
+  id: number;
+  title: string;
+  icon?: string | null;
+  completed_at?: string | null;
+  routine_names: string[];
+}
+
+export interface RutinaReportGoalLogDayItem {
+  date: string;
+  count: number;
+  goals: RutinaReportGoalLogGoalItem[];
+}
+
+export interface RutinaReportRoutineBreakdownGoalItem {
+  id: number;
+  title: string;
+  icon?: string | null;
+  status: 'completed' | 'skipped' | 'pending';
+}
+
+export interface RutinaReportRoutineBreakdownDayItem {
+  date: string;
+  completed_assignment: boolean;
+  progress_percent: number;
+  progress_label: string;
+  goal_count: number;
+  completed_count: number;
+  skipped_count: number;
+  pending_count: number;
+  goals: RutinaReportRoutineBreakdownGoalItem[];
+}
+
+export interface RutinaReportRoutineBreakdownItem {
+  id: number;
+  name: string;
+  day_part?: string | null;
+  day_part_label: string;
+  assigned: number;
+  completed: number;
+  failed_days: number;
+  linked_goals: number;
+  average_progress_percent: number;
+  days: RutinaReportRoutineBreakdownDayItem[];
+}
+
+export interface RutinaReportData {
+  mode: 'weekly' | 'monthly';
+  period_start: string;
+  period_end: string;
+  period_label: string;
+  total_assignments: number;
+  completed_assignments: number;
+  completion_rate: number;
+  days_with_routines: number;
+  completed_days: number;
+  top_routines: RutinaReportRoutineItem[];
+  day_part_usage: RutinaReportDayPartItem[];
+  daily_distribution: RutinaReportDayItem[];
+  goal_completion_summary?: {
+    total_completions: number;
+    days_with_completions: number;
+    distinct_goals: number;
+  };
+  goal_completion_log?: RutinaReportGoalLogDayItem[];
+  routine_breakdown?: RutinaReportRoutineBreakdownItem[];
+  streaks: {
+    current: number;
+    max: number;
+  };
+  coverage: {
+    active_routines: number;
+    assigned_active_routines: number;
+    percent: number;
+  };
+}
+
+function normalizeRutinaReportData(data: any): RutinaReportData {
+  return {
+    ...data,
+    top_routines: Array.isArray(data?.top_routines) ? data.top_routines : [],
+    day_part_usage: Array.isArray(data?.day_part_usage) ? data.day_part_usage : [],
+    daily_distribution: Array.isArray(data?.daily_distribution) ? data.daily_distribution : [],
+    goal_completion_summary: {
+      total_completions: Number(data?.goal_completion_summary?.total_completions ?? 0),
+      days_with_completions: Number(data?.goal_completion_summary?.days_with_completions ?? 0),
+      distinct_goals: Number(data?.goal_completion_summary?.distinct_goals ?? 0),
+    },
+    goal_completion_log: Array.isArray(data?.goal_completion_log) ? data.goal_completion_log : [],
+    routine_breakdown: Array.isArray(data?.routine_breakdown) ? data.routine_breakdown : [],
+    streaks: {
+      current: Number(data?.streaks?.current ?? 0),
+      max: Number(data?.streaks?.max ?? 0),
+    },
+    coverage: {
+      active_routines: Number(data?.coverage?.active_routines ?? 0),
+      assigned_active_routines: Number(data?.coverage?.assigned_active_routines ?? 0),
+      percent: Number(data?.coverage?.percent ?? 0),
+    },
+  };
 }
 
 export const rutinasAPI = {
@@ -792,6 +1078,36 @@ export const rutinasAPI = {
     return r.json();
   },
 
+  getReport: async (mode: 'weekly' | 'monthly', referenceDate?: string): Promise<RutinaReportData> => {
+    let url = `${API_BASE_URL}/rutinas/report?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Error fetching rutina report');
+    return normalizeRutinaReportData(await r.json());
+  },
+
+  sendReportEmail: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
+    let url = `${API_BASE_URL}/rutinas/report/send-email?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+    const r = await fetch(url, { method: 'POST' });
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error sending rutina report');
+    }
+    return r.json();
+  },
+
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
+    let url = `${API_BASE_URL}/rutinas/report/download?mode=${mode}`;
+    if (referenceDate) url += `&reference_date=${referenceDate}`;
+    const r = await fetch(url);
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(errorText || 'Error downloading rutina report');
+    }
+    return r.blob();
+  },
+
   addObjetivo: async (rutinaId: number, objetivoId: number): Promise<void> => {
     const r = await fetch(`${API_BASE_URL}/rutinas/${rutinaId}/objetivos/${objetivoId}`, { method: 'POST' });
     if (!r.ok) throw new Error('Error adding objetivo to rutina');
@@ -812,6 +1128,34 @@ export interface DashboardData {
   };
   frase_del_dia: { texto: string; autor: string | null } | null;
   today: string;
+}
+
+export interface ExternalGoal {
+  id: string;
+  title: string;
+  status: string;
+  category: string | null;
+  description?: string | null;
+  source: 'finance-hub' | 'mindful-study' | string;
+  url: string | null;
+}
+
+function normalizeExternalGoals(items: any[]): ExternalGoal[] {
+  return items.map((item) => ({
+    id: String(item.id),
+    title: String(item.title ?? ''),
+    status: String(item.status ?? ''),
+    category: item.category ?? null,
+    description:
+      typeof (item.description ?? item.descripcion) === 'string'
+        ? String(item.description ?? item.descripcion)
+            .replace(/\\r\\n/g, '\n')
+            .replace(/\\n/g, '\n')
+            .replace(/\r\n/g, '\n')
+        : null,
+    source: item.source ?? 'external',
+    url: item.url ?? null,
+  }));
 }
 
 export interface ReminderPartConfig { enabled: boolean; hour: number; minute: number; }
@@ -846,6 +1190,19 @@ export const statsAPI = {
     const r = await fetch(`${API_BASE_URL}/stats/dashboard`);
     if (!r.ok) throw new Error('Error fetching dashboard');
     return r.json();
+  },
+};
+
+export const integrationsAPI = {
+  getFinanceHubGoals: async (): Promise<ExternalGoal[]> => {
+    const r = await fetch(`${FINANCE_HUB_API_URL}/integration/goals`);
+    if (!r.ok) throw new Error('Error fetching finance-hub goals');
+    return normalizeExternalGoals(await r.json());
+  },
+  getMindfulStudyGoals: async (): Promise<ExternalGoal[]> => {
+    const r = await fetch(`${MINDFUL_STUDY_API_URL}/integration/goals`);
+    if (!r.ok) throw new Error('Error fetching mindful-study goals');
+    return normalizeExternalGoals(await r.json());
   },
 };
 

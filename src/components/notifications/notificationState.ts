@@ -15,6 +15,8 @@ const KEYS = {
   afternoonRead: 'notifAfternoonRead',
 };
 
+export const OPEN_WELCOME_MODAL_EVENT = 'evoluciona:open-welcome-modal';
+
 function getToday(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -80,4 +82,9 @@ export function markBellRead(): void {
   } else {
     localStorage.setItem(KEYS.afternoonRead, 'true');
   }
+}
+
+export function requestWelcomeModalOpen(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(OPEN_WELCOME_MODAL_EVENT));
 }
