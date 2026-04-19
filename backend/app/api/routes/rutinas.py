@@ -34,6 +34,7 @@ def _rutina_to_dict(r: Rutina) -> dict:
         "parte_dia": r.parte_dia,
         "color": r.color,
         "descripcion": r.descripcion,
+        "dias_semana": json.loads(r.dias_semana) if r.dias_semana else [],
         "activa": r.activa,
         "fecha_creacion": r.fecha_creacion,
         "bloques": [
@@ -68,6 +69,7 @@ def _asignacion_to_dict(a: RutinaAsignacion) -> dict:
         "parte_dia": a.parte_dia,
         "rutina_id": a.rutina_id,
         "completada": a.completada,
+        "es_automatica": a.es_automatica,
         "objetivo_ids": json.loads(a.objetivo_ids) if a.objetivo_ids else [],
         "rutina": _rutina_to_dict(a.rutina),
     }
@@ -89,6 +91,50 @@ def _replace_bloques(db: Session, rutina: Rutina, bloques_data: list):
         ))
 
 
+def _weekday_index(iso_date: str) -> int:
+    return datetime.strptime(iso_date, "%Y-%m-%d").date().weekday()
+
+
+def _ensure_weekly_assignments(db: Session, fechas: list[str]) -> None:
+    if not fechas:
+        return
+
+    rutinas = db.query(Rutina).filter(Rutina.activa == True, Rutina.dias_semana.isnot(None)).all()
+    existing_assignments = (
+        db.query(RutinaAsignacion)
+        .filter(RutinaAsignacion.fecha.in_(fechas))
+        .all()
+    )
+    occupied_slots = {(assignment.fecha, assignment.parte_dia) for assignment in existing_assignments}
+
+    created = False
+    for rutina in rutinas:
+        weekly_days = json.loads(rutina.dias_semana) if rutina.dias_semana else []
+        if not weekly_days:
+            continue
+
+        for fecha in fechas:
+            if _weekday_index(fecha) not in weekly_days:
+                continue
+            slot = (fecha, rutina.parte_dia)
+            if slot in occupied_slots:
+                continue
+
+            db.add(RutinaAsignacion(
+                fecha=fecha,
+                parte_dia=rutina.parte_dia,
+                rutina_id=rutina.id,
+                completada=False,
+                es_automatica=True,
+                fecha_creacion=datetime.now(),
+            ))
+            occupied_slots.add(slot)
+            created = True
+
+    if created:
+        db.commit()
+
+
 # ── Rutinas (plantillas) ──────────────────────────────────────────────────────
 
 @router.get("", response_model=List[RutinaResponse])
@@ -106,6 +152,7 @@ def create_rutina(data: RutinaCreate, db: Session = Depends(get_db)):
         parte_dia=data.parte_dia,
         color=data.color,
         descripcion=data.descripcion,
+        dias_semana=json.dumps(data.dias_semana or []),
         activa=True,
         fecha_creacion=datetime.now(),
     )
@@ -140,6 +187,8 @@ def get_semana(
 
     fechas = [(inicio + timedelta(days=i)).isoformat() for i in range(7)]
 
+    _ensure_weekly_assignments(db, fechas)
+
     asignaciones = (
         db.query(RutinaAsignacion)
         .filter(RutinaAsignacion.fecha.in_(fechas))
@@ -164,7 +213,14 @@ def get_objetivos_recurrentes(db: Session = Depends(get_db)):
         .all()
     )
     return [
-        {"id": g.id, "titulo": g.titulo, "icono": g.icono, "categoria": g.categoria, "frecuencia": g.frecuencia}
+        {
+            "id": g.id,
+            "titulo": g.titulo,
+            "icono": g.icono,
+            "categoria": g.categoria,
+            "frecuencia": g.frecuencia,
+            "parte_dia": g.parte_dia,
+        }
         for g in goals
     ]
 
@@ -308,8 +364,16 @@ def update_rutina(rutina_id: int, data: RutinaUpdate, db: Session = Depends(get_
         r.color = data.color
     if data.descripcion is not None:
         r.descripcion = data.descripcion
+    if data.dias_semana is not None:
+        r.dias_semana = json.dumps(data.dias_semana)
     if data.bloques is not None:
         _replace_bloques(db, r, data.bloques)
+
+    db.query(RutinaAsignacion).filter(
+        RutinaAsignacion.rutina_id == r.id,
+        RutinaAsignacion.es_automatica == True,
+        RutinaAsignacion.fecha >= date.today().isoformat(),
+    ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(r)
@@ -367,6 +431,7 @@ def create_asignacion(data: RutinaAsignacionCreate, db: Session = Depends(get_db
     if existing:
         existing.rutina_id = data.rutina_id
         existing.completada = False
+        existing.es_automatica = False
         db.commit()
         db.refresh(existing)
         return _asignacion_to_dict(existing)
@@ -376,6 +441,7 @@ def create_asignacion(data: RutinaAsignacionCreate, db: Session = Depends(get_db
         parte_dia=data.parte_dia,
         rutina_id=data.rutina_id,
         completada=False,
+        es_automatica=False,
         fecha_creacion=datetime.now(),
     )
     db.add(asignacion)
@@ -390,8 +456,28 @@ def update_asignacion(asignacion_id: int, data: RutinaAsignacionUpdate, db: Sess
     if not a:
         raise HTTPException(status_code=404, detail="Asignación no encontrada")
 
+    next_fecha = data.fecha if data.fecha is not None else a.fecha
+    next_parte_dia = data.parte_dia if data.parte_dia is not None else a.parte_dia
+
+    if data.fecha is not None or data.parte_dia is not None:
+        conflicting = (
+            db.query(RutinaAsignacion)
+            .filter(
+                RutinaAsignacion.id != a.id,
+                RutinaAsignacion.fecha == next_fecha,
+                RutinaAsignacion.parte_dia == next_parte_dia,
+            )
+            .first()
+        )
+        if conflicting:
+            raise HTTPException(status_code=409, detail="Ya existe una rutina asignada en ese dia y parte del dia")
+
     if data.rutina_id is not None:
         a.rutina_id = data.rutina_id
+    if data.fecha is not None:
+        a.fecha = data.fecha
+    if data.parte_dia is not None:
+        a.parte_dia = data.parte_dia
     if data.completada is not None:
         a.completada = data.completada
     if data.objetivo_ids is not None:

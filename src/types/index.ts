@@ -13,6 +13,7 @@ export interface SubGoal {
   id: string;
   title: string;
   completed: boolean;
+  skipped?: boolean;
   notes?: string;
   completedAt?: string;
   priority?: GoalPriority;

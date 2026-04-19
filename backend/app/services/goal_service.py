@@ -4,6 +4,7 @@ Servicios para objetivos (Goals).
 
 from sqlalchemy.orm import Session
 from app.models.models import Goal, GoalSkipDay, GoalCompletionDay
+from app.models.subgoal import SubGoal
 from app.schemas.schemas import GoalCreate, GoalUpdate
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -32,6 +33,10 @@ class GoalService:
             if completed_key and completed_key != today_key:
                 goal.completado = False
                 goal.fecha_completado = None
+                db.query(SubGoal).filter(
+                    SubGoal.objetivo_id == goal.id,
+                    SubGoal.completado == True,
+                ).update({SubGoal.completado: False}, synchronize_session=False)
                 dirty = True
 
         if dirty:

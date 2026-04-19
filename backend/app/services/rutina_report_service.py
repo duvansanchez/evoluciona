@@ -60,6 +60,29 @@ def _routine_progress_label(progress_percent: int) -> str:
     return "Nada"
 
 
+def _build_routine_day_evaluation(
+    *,
+    completed_count: int,
+    skipped_count: int,
+    pending_count: int,
+    total_goals: int,
+    assignment_completed: bool,
+) -> dict[str, Any]:
+    if skipped_count > 0 and pending_count == 0:
+        return {
+            "progress_percent": None,
+            "progress_label": "Neutral por saltos",
+            "is_neutral": True,
+        }
+
+    progress_percent = _bucket_routine_progress(completed_count, total_goals, assignment_completed)
+    return {
+        "progress_percent": progress_percent,
+        "progress_label": _routine_progress_label(progress_percent),
+        "is_neutral": False,
+    }
+
+
 def build_rutina_report_label(mode: str, start: date, end: date) -> str:
     normalized = (mode or "weekly").lower()
     if normalized == "monthly":
@@ -426,7 +449,9 @@ def _build_routine_breakdown(
 
         day_entries: list[dict[str, Any]] = []
         failed_days = 0
+        neutral_days = 0
         total_progress_percent = 0
+        progress_day_count = 0
 
         for assignment in sorted(items, key=lambda item: item.fecha, reverse=True):
             goal_statuses: list[dict[str, Any]] = []
@@ -455,10 +480,22 @@ def _build_routine_breakdown(
                     }
                 )
 
-            progress_percent = _bucket_routine_progress(completed_count, goal_count, assignment.completada)
-            total_progress_percent += progress_percent
+            evaluation = _build_routine_day_evaluation(
+                completed_count=completed_count,
+                skipped_count=skipped_count,
+                pending_count=pending_count,
+                total_goals=goal_count,
+                assignment_completed=assignment.completada,
+            )
+            progress_percent = evaluation["progress_percent"]
 
-            if progress_percent < 100:
+            if evaluation["is_neutral"]:
+                neutral_days += 1
+            else:
+                total_progress_percent += progress_percent
+                progress_day_count += 1
+
+            if not evaluation["is_neutral"] and progress_percent < 100:
                 failed_days += 1
 
             day_entries.append(
@@ -466,7 +503,8 @@ def _build_routine_breakdown(
                     "date": assignment.fecha,
                     "completed_assignment": assignment.completada,
                     "progress_percent": progress_percent,
-                    "progress_label": _routine_progress_label(progress_percent),
+                    "progress_label": evaluation["progress_label"],
+                    "is_neutral": evaluation["is_neutral"],
                     "goal_count": goal_count,
                     "completed_count": completed_count,
                     "skipped_count": skipped_count,
@@ -484,8 +522,9 @@ def _build_routine_breakdown(
                 "assigned": len(items),
                 "completed": sum(1 for item in items if item.completada),
                 "failed_days": failed_days,
+                "neutral_days": neutral_days,
                 "linked_goals": goal_count,
-                "average_progress_percent": round(total_progress_percent / len(day_entries)) if day_entries else 0,
+                "average_progress_percent": round(total_progress_percent / progress_day_count) if progress_day_count else 0,
                 "days": day_entries,
             }
         )

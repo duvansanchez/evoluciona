@@ -473,17 +473,20 @@ def build_html_rutina_report(data: Dict[str, Any]) -> str:
                 <div style="font-size:15px;font-weight:700;color:#111827;">{routine.get('name')}</div>
                 <div style="font-size:12px;color:#6b7280;margin-top:4px;">{routine.get('day_part_label') or 'Sin parte del dia'} • Avance promedio: {routine.get('average_progress_percent', 0)}%</div>
               </td>
-              <td align="right" style="font-size:12px;color:#6b7280;">{routine.get('linked_goals', 0)} tarea(s) vinculada(s)</td>
+              <td align="right" style="font-size:12px;color:#6b7280;">
+                {routine.get('linked_goals', 0)} tarea(s) vinculada(s)<br>
+                {routine.get('failed_days', 0)} dia(s) incompleto(s) &nbsp;|&nbsp; {routine.get('neutral_days', 0)} neutral(es)
+              </td>
             </tr>
           </table>
           {''.join(
             f'''
-            <div style="margin-top:12px;padding:14px;border-radius:12px;border:1px solid {'#bbf7d0' if day.get('progress_percent', 0) >= 100 else '#bfdbfe' if day.get('progress_percent', 0) >= 75 else '#fde68a' if day.get('progress_percent', 0) >= 25 else '#fecaca'};background:{'#f0fdf4' if day.get('progress_percent', 0) >= 100 else '#eff6ff' if day.get('progress_percent', 0) >= 75 else '#fffbeb' if day.get('progress_percent', 0) >= 25 else '#fef2f2'};">
+            <div style="margin-top:12px;padding:14px;border-radius:12px;border:1px solid {'#cbd5e1' if day.get('is_neutral') else '#bbf7d0' if day.get('progress_percent', 0) >= 100 else '#bfdbfe' if day.get('progress_percent', 0) >= 75 else '#fde68a' if day.get('progress_percent', 0) >= 25 else '#fecaca'};background:{'#f8fafc' if day.get('is_neutral') else '#f0fdf4' if day.get('progress_percent', 0) >= 100 else '#eff6ff' if day.get('progress_percent', 0) >= 75 else '#fffbeb' if day.get('progress_percent', 0) >= 25 else '#fef2f2'};">
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
                 <tr>
                   <td style="font-size:14px;font-weight:700;color:#111827;">{day.get('date')}</td>
-                  <td align="right" style="font-size:12px;font-weight:700;color:{'#166534' if day.get('progress_percent', 0) >= 100 else '#1d4ed8' if day.get('progress_percent', 0) >= 75 else '#92400e' if day.get('progress_percent', 0) >= 25 else '#b91c1c'};">
-                    {day.get('progress_percent', 0)}% {day.get('progress_label', '')}
+                  <td align="right" style="font-size:12px;font-weight:700;color:{'#475569' if day.get('is_neutral') else '#166534' if day.get('progress_percent', 0) >= 100 else '#1d4ed8' if day.get('progress_percent', 0) >= 75 else '#92400e' if day.get('progress_percent', 0) >= 25 else '#b91c1c'};">
+                    {'No computa' if day.get('is_neutral') else f"{day.get('progress_percent', 0)}%"} {day.get('progress_label', '')}
                   </td>
                 </tr>
               </table>

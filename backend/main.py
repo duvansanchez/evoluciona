@@ -58,6 +58,20 @@ try:
             conn.execute(text("""
                 IF NOT EXISTS (
                     SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutina_asignaciones') AND name = N'es_automatica'
+                )
+                ALTER TABLE rutina_asignaciones ADD es_automatica BIT NOT NULL CONSTRAINT DF_rutina_asignaciones_es_automatica DEFAULT 0
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutinas') AND name = N'dias_semana'
+                )
+                ALTER TABLE rutinas ADD dias_semana NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'folder_id'
                 )
                 ALTER TABLE subobjetivos ADD folder_id INT NULL
@@ -84,6 +98,18 @@ try:
                     CONSTRAINT uq_objetivo_completado_dia UNIQUE (objetivo_id, fecha),
                     CONSTRAINT fk_objetivo_completado_dias_objetivo
                         FOREIGN KEY (objetivo_id) REFERENCES objetivos(id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'subobjetivo_saltado_dias', N'U') IS NULL
+                CREATE TABLE subobjetivo_saltado_dias (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    subobjetivo_id INT NOT NULL,
+                    fecha NVARCHAR(10) NOT NULL,
+                    fecha_creacion DATETIME NULL,
+                    CONSTRAINT uq_subobjetivo_saltado_dia UNIQUE (subobjetivo_id, fecha),
+                    CONSTRAINT fk_subobjetivo_saltado_dias_subobjetivo
+                        FOREIGN KEY (subobjetivo_id) REFERENCES subobjetivos(id) ON DELETE CASCADE
                 )
             """))
             conn.execute(text("""

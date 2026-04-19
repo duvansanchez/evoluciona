@@ -333,6 +333,7 @@ class Rutina(Base):
     parte_dia = Column(String(20), nullable=False)  # morning | afternoon | evening
     color = Column(String(30), nullable=True)
     descripcion = Column(Text, nullable=True)
+    dias_semana = Column(Text, nullable=True)  # JSON: [0..6] where 0 = lunes
     activa = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, nullable=True)
 
@@ -368,6 +369,7 @@ class RutinaAsignacion(Base):
     parte_dia = Column(String(20), nullable=False)
     rutina_id = Column(Integer, ForeignKey("rutinas.id"), nullable=False)
     completada = Column(Boolean, default=False)
+    es_automatica = Column(Boolean, default=False)
     objetivo_ids = Column(Text, nullable=True)        # JSON: [1, 2, 3]
     fecha_creacion = Column(DateTime, nullable=True)
 

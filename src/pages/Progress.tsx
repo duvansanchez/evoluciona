@@ -22,6 +22,8 @@ import {
   CircleDashed,
   Upload,
   Trash2,
+  Volume2,
+  Square,
 } from 'lucide-react';
 import { phrasesAPI, remindersAPI, reportsAPI, rutinasAPI } from '@/services/api';
 import type { PhraseReportData, ReminderConfig, RutinaReportData, WeeklyConclusion } from '@/services/api';
@@ -86,6 +88,55 @@ function buildPhraseFilename(mode: 'weekly' | 'monthly', referenceDate: string) 
 
 function buildQuestionsFilename(scope: 'current-week' | 'previous-week' | 'current-month' | 'previous-month') {
   return `informe-preguntas-${scope}.html`;
+}
+
+function getWeekMonday(referenceDate: string): Date {
+  const date = new Date(`${referenceDate}T12:00:00`);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+function formatQuestionsWeekLabel(referenceDate: string): string {
+  const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const monday = getWeekMonday(referenceDate);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const fromDay = monday.getDate();
+  const fromMonth = MONTHS[monday.getMonth()];
+  const toDay = sunday.getDate();
+  const toMonth = MONTHS[sunday.getMonth()];
+  const year = sunday.getFullYear();
+  if (monday.getMonth() === sunday.getMonth()) {
+    return `Semana del ${fromDay} al ${toDay} de ${toMonth} ${year}`;
+  }
+  return `Semana del ${fromDay} ${fromMonth} al ${toDay} ${toMonth} ${year}`;
+}
+
+function isCurrentWeek(referenceDate: string): boolean {
+  const todayMonday = getWeekMonday(getTodayIso()).toISOString().slice(0, 10);
+  const refMonday = getWeekMonday(referenceDate).toISOString().slice(0, 10);
+  return todayMonday === refMonday;
+}
+
+function formatQuestionsMonthLabel(referenceDate: string): string {
+  const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const date = new Date(`${referenceDate}T12:00:00`);
+  return `${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+function isCurrentMonth(referenceDate: string): boolean {
+  const today = new Date();
+  const ref = new Date(`${referenceDate}T12:00:00`);
+  return today.getFullYear() === ref.getFullYear() && today.getMonth() === ref.getMonth();
+}
+
+function getMonthRef(referenceDate: string): string {
+  const date = new Date(`${referenceDate}T12:00:00`);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
 }
 
 function buildRutinasFilename(mode: 'weekly' | 'monthly', referenceDate: string) {
@@ -215,6 +266,8 @@ export default function Progress() {
   const [rutinasReportMessage, setRutinasReportMessage] = useState<string | null>(null);
   const [rutinasReportError, setRutinasReportError] = useState<string | null>(null);
   const [questionsActionLoading, setQuestionsActionLoading] = useState<string | null>(null);
+  const [questionsWeekRef, setQuestionsWeekRef] = useState(getTodayIso());
+  const [questionsMonthRef, setQuestionsMonthRef] = useState(getTodayIso());
   const [phrasesActionLoading, setPhrasesActionLoading] = useState<string | null>(null);
   const [rutinasActionLoading, setRutinasActionLoading] = useState<string | null>(null);
 
@@ -239,6 +292,17 @@ export default function Progress() {
   const [weeklyConclusionMessage, setWeeklyConclusionMessage] = useState<string | null>(null);
   const [weeklyConclusionError, setWeeklyConclusionError] = useState<string | null>(null);
   const [selectedConclusionModal, setSelectedConclusionModal] = useState<WeeklyConclusion | null>(null);
+  const [conclusionSpeaking, setConclusionSpeaking] = useState(false);
+  const [conclusionAudioLoading, setConclusionAudioLoading] = useState(false);
+  const [conclusionAudioProvider, setConclusionAudioProvider] = useState<'browser' | 'elevenlabs' | 'edge'>('browser');
+  const [conclusionVoices, setConclusionVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [conclusionVoiceName, setConclusionVoiceName] = useState('');
+  const [conclusionAudioRate, setConclusionAudioRate] = useState(1);
+  const [conclusionAudioPitch, setConclusionAudioPitch] = useState(1);
+  const conclusionUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const conclusionAudioElementRef = useRef<HTMLAudioElement | null>(null);
+  const conclusionAudioUrlRef = useRef<string | null>(null);
+  const conclusionAudioRequestIdRef = useRef(0);
   const conclusionFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const lastReport = reportHistory[0] ?? null;
@@ -360,11 +424,31 @@ export default function Progress() {
   }, [rutinaReportMode, rutinaReferenceDate, rutinasExpanded]);
 
   useEffect(() => {
+    stopConclusionSpeech();
     if (conclusionsExpanded) {
       void loadWeeklyConclusion();
       void loadWeeklyConclusionsHistory();
     }
   }, [conclusionReferenceDate, conclusionsExpanded]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => setConclusionVoices(window.speechSynthesis.getVoices());
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    let cancelled = false;
+    Promise.all([phrasesAPI.getAudioPreferences(), phrasesAPI.getAudioStatus()])
+      .then(([prefs, status]) => {
+        if (cancelled) return;
+        setConclusionVoiceName(prefs.selected_voice_name ?? '');
+        setConclusionAudioRate(prefs.rate ?? 1);
+        setConclusionAudioPitch(prefs.pitch ?? 1);
+        setConclusionAudioProvider(status.provider ?? 'browser');
+      })
+      .catch(() => {/* usa defaults del browser */});
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -477,6 +561,133 @@ export default function Progress() {
     );
   };
 
+  const stopConclusionSpeech = () => {
+    conclusionAudioRequestIdRef.current += 1; // invalida cualquier petición en vuelo
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (conclusionAudioElementRef.current) {
+      conclusionAudioElementRef.current.pause();
+      conclusionAudioElementRef.current = null;
+    }
+    if (conclusionAudioUrlRef.current) {
+      URL.revokeObjectURL(conclusionAudioUrlRef.current);
+      conclusionAudioUrlRef.current = null;
+    }
+    conclusionUtteranceRef.current = null;
+    setConclusionSpeaking(false);
+    setConclusionAudioLoading(false);
+  };
+
+  const stripMarkdownForSpeech = (text: string): string => {
+    let r = text;
+    // Encabezados → solo el texto
+    r = r.replace(/#{1,6}\s+/g, '');
+    // Negrita / cursiva → solo el texto
+    r = r.replace(/\*\*(.*?)\*\*/gs, '$1');
+    r = r.replace(/\*(.*?)\*/gs, '$1');
+    // Código inline → eliminar
+    r = r.replace(/`{1,3}[^`\n]*`{1,3}/g, '');
+    // Links → solo la etiqueta
+    r = r.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    // Viñetas sin número → eliminar guión/asterisco
+    r = r.replace(/^[-*+]\s+/gm, '');
+    // Listas ordenadas → conservar el número ("1. " → "1, ")
+    r = r.replace(/^(\d+)\.\s+/gm, '$1, ');
+    // Porcentajes → "por ciento"
+    r = r.replace(/(\d+(?:[.,]\d+)?)\s*%/g, '$1 por ciento');
+    // Separador de miles con punto (ej: 1.000) → sin separador
+    r = r.replace(/\b(\d{1,3})\.(\d{3})\b/g, '$1$2');
+    // Decimal con punto → "coma" (convención es-CO)
+    r = r.replace(/\b(\d+)\.(\d+)\b/g, '$1 coma $2');
+    // Saltos dobles → pausa
+    r = r.replace(/\n{2,}/g, '. ');
+    // Salto simple → espacio
+    r = r.replace(/\n/g, ' ');
+    return r.trim();
+  };
+
+  const speakConclusion = async (text: string) => {
+    if (!text.trim()) return;
+
+    if (conclusionSpeaking || conclusionAudioLoading) {
+      stopConclusionSpeech();
+      return;
+    }
+
+    stopConclusionSpeech();
+    const plainText = stripMarkdownForSpeech(text);
+    if (!plainText) return;
+
+    if (conclusionAudioProvider === 'elevenlabs' || conclusionAudioProvider === 'edge') {
+      const requestId = conclusionAudioRequestIdRef.current + 1;
+      conclusionAudioRequestIdRef.current = requestId;
+      setConclusionAudioLoading(true);
+      try {
+        const audioBlob = await phrasesAPI.generateAudio(plainText, {
+          rate: conclusionAudioRate,
+          pitch: conclusionAudioPitch,
+        });
+        if (conclusionAudioRequestIdRef.current !== requestId) return; // petición cancelada
+        setConclusionAudioLoading(false);
+        const audioUrl = URL.createObjectURL(audioBlob);
+        conclusionAudioUrlRef.current = audioUrl;
+        const audio = new Audio(audioUrl);
+        conclusionAudioElementRef.current = audio;
+        audio.onplay = () => setConclusionSpeaking(true);
+        audio.onended = () => {
+          setConclusionSpeaking(false);
+          conclusionAudioElementRef.current = null;
+          if (conclusionAudioUrlRef.current) {
+            URL.revokeObjectURL(conclusionAudioUrlRef.current);
+            conclusionAudioUrlRef.current = null;
+          }
+        };
+        audio.onerror = () => {
+          setConclusionSpeaking(false);
+          conclusionAudioElementRef.current = null;
+        };
+        await audio.play();
+      } catch (e) {
+        if (conclusionAudioRequestIdRef.current === requestId) {
+          console.error('Error playing conclusion audio:', e);
+          setConclusionSpeaking(false);
+          setConclusionAudioLoading(false);
+        }
+      }
+      return;
+    }
+
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const preferredVoice =
+      conclusionVoices.find(v => v.name === conclusionVoiceName) ||
+      conclusionVoices.filter(v => v.lang.toLowerCase().startsWith('es'))[0] ||
+      null;
+
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+      utterance.lang = preferredVoice.lang;
+    } else {
+      utterance.lang = 'es-CO';
+    }
+    utterance.rate = conclusionAudioRate;
+    utterance.pitch = conclusionAudioPitch;
+
+    utterance.onstart = () => setConclusionSpeaking(true);
+    utterance.onend = () => {
+      setConclusionSpeaking(false);
+      conclusionUtteranceRef.current = null;
+    };
+    utterance.onerror = () => {
+      setConclusionSpeaking(false);
+      conclusionUtteranceRef.current = null;
+    };
+
+    conclusionUtteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
   const handleSaveWeeklyConclusion = async () => {
     const content = weeklyConclusionText.trim();
     if (!content) {
@@ -587,78 +798,106 @@ export default function Progress() {
             ) : (
             <div className="mt-5 space-y-4">
               <div className="rounded-lg border border-border bg-background/70 p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold text-foreground">Semana actual y semana anterior</p>
+                <div className="mb-3 flex items-center gap-1 rounded-lg border border-input bg-background px-2 py-1">
+                  <button
+                    onClick={() => setQuestionsWeekRef(prev => shiftReferenceDate(prev, 'weekly', -1))}
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="flex-1 px-2 text-center text-sm font-medium text-foreground">
+                    {formatQuestionsWeekLabel(questionsWeekRef)}
+                  </span>
+                  <button
+                    onClick={() => setQuestionsWeekRef(prev => shiftReferenceDate(prev, 'weekly', 1))}
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <ReportActionButton
-                    onClick={() => runQuestionsAction('questions-send-current-week', () => reportsAPI.sendCurrentWeekReport(), 'Informe acumulado de esta semana enviado.')}
-                    loading={questionsActionLoading === 'questions-send-current-week'}
-                    icon={<Mail className="h-4 w-4" />}
-                    variant="primary"
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <button
+                    onClick={() => {
+                      const weekMonday = getWeekMonday(questionsWeekRef).toISOString().slice(0, 10);
+                      if (isCurrentWeek(questionsWeekRef)) {
+                        void runQuestionsAction('questions-send-week', () => reportsAPI.sendCurrentWeekReport(), 'Informe de esta semana enviado.');
+                      } else {
+                        void runQuestionsAction('questions-send-week', () => reportsAPI.sendPreviousWeekReport(weekMonday), 'Informe de la semana enviado.');
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-send-week'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${isCurrentWeek(questionsWeekRef) ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-input bg-background text-foreground hover:bg-muted'}`}
                   >
-                    Enviar semana actual
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => handleDownloadQuestions('questions-download-current-week', () => reportsAPI.downloadCurrentWeekReport(), buildQuestionsFilename('current-week'), 'Informe acumulado de esta semana descargado.')}
-                    loading={questionsActionLoading === 'questions-download-current-week'}
-                    icon={<Download className="h-4 w-4" />}
+                    <Mail className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-send-week' ? 'Enviando...' : 'Enviar'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const weekMonday = getWeekMonday(questionsWeekRef).toISOString().slice(0, 10);
+                      if (isCurrentWeek(questionsWeekRef)) {
+                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadCurrentWeekReport(), `informe-preguntas-${weekMonday}.html`, 'Informe descargado.');
+                      } else {
+                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadPreviousWeekReport(weekMonday), `informe-preguntas-${weekMonday}.html`, 'Informe descargado.');
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-download-week'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                   >
-                    Descargar semana actual
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => runQuestionsAction('questions-send-previous-week', () => reportsAPI.sendPreviousWeekReport(), 'Informe de la semana anterior enviado.')}
-                    loading={questionsActionLoading === 'questions-send-previous-week'}
-                    icon={<Mail className="h-4 w-4" />}
-                  >
-                    Enviar semana anterior
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => handleDownloadQuestions('questions-download-previous-week', () => reportsAPI.downloadPreviousWeekReport(), buildQuestionsFilename('previous-week'), 'Informe de la semana anterior descargado.')}
-                    loading={questionsActionLoading === 'questions-download-previous-week'}
-                    icon={<Download className="h-4 w-4" />}
-                  >
-                    Descargar semana anterior
-                  </ReportActionButton>
+                    <Download className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-download-week' ? 'Descargando...' : 'Descargar'}
+                  </button>
                 </div>
               </div>
 
               <div className="rounded-lg border border-border bg-background/70 p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold text-foreground">Mes actual y mes anterior</p>
+                <div className="mb-3 flex items-center gap-1 rounded-lg border border-input bg-background px-2 py-1">
+                  <button
+                    onClick={() => setQuestionsMonthRef(prev => shiftReferenceDate(prev, 'monthly', -1))}
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <span className="flex-1 px-2 text-center text-sm font-medium text-foreground">
+                    {formatQuestionsMonthLabel(questionsMonthRef)}
+                  </span>
+                  <button
+                    onClick={() => setQuestionsMonthRef(prev => shiftReferenceDate(prev, 'monthly', 1))}
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <ReportActionButton
-                    onClick={() => runQuestionsAction('questions-send-current-month', () => reportsAPI.sendCurrentMonthReport(), 'Informe acumulado de este mes enviado.')}
-                    loading={questionsActionLoading === 'questions-send-current-month'}
-                    icon={<Mail className="h-4 w-4" />}
-                    variant="primary"
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <button
+                    onClick={() => {
+                      const monthOf = getMonthRef(questionsMonthRef);
+                      if (isCurrentMonth(questionsMonthRef)) {
+                        void runQuestionsAction('questions-send-month', () => reportsAPI.sendCurrentMonthReport(), 'Informe de este mes enviado.');
+                      } else {
+                        void runQuestionsAction('questions-send-month', () => reportsAPI.sendPreviousMonthReport(monthOf), 'Informe del mes enviado.');
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-send-month'}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${isCurrentMonth(questionsMonthRef) ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'border border-input bg-background text-foreground hover:bg-muted'}`}
                   >
-                    Enviar mes actual
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => handleDownloadQuestions('questions-download-current-month', () => reportsAPI.downloadCurrentMonthReport(), buildQuestionsFilename('current-month'), 'Informe acumulado de este mes descargado.')}
-                    loading={questionsActionLoading === 'questions-download-current-month'}
-                    icon={<Download className="h-4 w-4" />}
+                    <Mail className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-send-month' ? 'Enviando...' : 'Enviar'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const monthOf = getMonthRef(questionsMonthRef);
+                      if (isCurrentMonth(questionsMonthRef)) {
+                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadCurrentMonthReport(), `informe-preguntas-${monthOf}.html`, 'Informe descargado.');
+                      } else {
+                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadPreviousMonthReport(monthOf), `informe-preguntas-${monthOf}.html`, 'Informe descargado.');
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-download-month'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                   >
-                    Descargar mes actual
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => runQuestionsAction('questions-send-previous-month', () => reportsAPI.sendPreviousMonthReport(), 'Informe del mes anterior enviado.')}
-                    loading={questionsActionLoading === 'questions-send-previous-month'}
-                    icon={<Mail className="h-4 w-4" />}
-                  >
-                    Enviar mes anterior
-                  </ReportActionButton>
-                  <ReportActionButton
-                    onClick={() => handleDownloadQuestions('questions-download-previous-month', () => reportsAPI.downloadPreviousMonthReport(), buildQuestionsFilename('previous-month'), 'Informe del mes anterior descargado.')}
-                    loading={questionsActionLoading === 'questions-download-previous-month'}
-                    icon={<Download className="h-4 w-4" />}
-                  >
-                    Descargar mes anterior
-                  </ReportActionButton>
+                    <Download className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-download-month' ? 'Descargando...' : 'Descargar'}
+                  </button>
                 </div>
               </div>
 
@@ -970,7 +1209,10 @@ export default function Progress() {
                                   Avance promedio {routine.average_progress_percent}%
                                 </span>
                                 <span className="rounded-full bg-amber-500/10 px-2.5 py-1 font-semibold text-amber-600">
-                                  {routine.failed_days} dia{routine.failed_days === 1 ? '' : 's'} bajo 100%
+                                  {routine.failed_days} dia{routine.failed_days === 1 ? '' : 's'} incompleto{routine.failed_days === 1 ? '' : 's'}
+                                </span>
+                                <span className="rounded-full bg-slate-500/10 px-2.5 py-1 font-semibold text-slate-600">
+                                  {routine.neutral_days} dia{routine.neutral_days === 1 ? '' : 's'} neutral{routine.neutral_days === 1 ? '' : 'es'}
                                 </span>
                               </div>
                             </div>
@@ -994,8 +1236,8 @@ export default function Progress() {
                                         </span>
                                       </div>
                                     </div>
-                                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${day.progress_percent >= 100 ? 'bg-green-500/10 text-green-600' : day.progress_percent >= 75 ? 'bg-blue-500/10 text-blue-600' : day.progress_percent >= 25 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
-                                      {day.progress_percent}% {day.progress_label}
+                                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${day.is_neutral ? 'bg-slate-500/10 text-slate-600' : (day.progress_percent ?? 0) >= 100 ? 'bg-green-500/10 text-green-600' : (day.progress_percent ?? 0) >= 75 ? 'bg-blue-500/10 text-blue-600' : (day.progress_percent ?? 0) >= 25 ? 'bg-amber-500/10 text-amber-600' : 'bg-destructive/10 text-destructive'}`}>
+                                      {day.is_neutral ? 'No computa' : `${day.progress_percent ?? 0}%`} {day.progress_label}
                                     </span>
                                   </div>
 
@@ -1125,11 +1367,11 @@ export default function Progress() {
                   <p className="text-sm text-muted-foreground">Cargando conclusion semanal...</p>
                 ) : (
                   <>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs text-muted-foreground">
-                        Puedes escribir manualmente o cargar un archivo <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">.md</code>.
+                        Semana: {weeklyConclusion?.week_start || '-'} a {weeklyConclusion?.week_end || '-'}
                       </p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <input
                           ref={conclusionFileInputRef}
                           type="file"
@@ -1137,48 +1379,66 @@ export default function Progress() {
                           onChange={handleConclusionFilePicked}
                           className="hidden"
                         />
-                        <button
-                          onClick={() => conclusionFileInputRef.current?.click()}
-                          className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-                        >
-                          <Upload className="h-4 w-4" />
-                          Cargar .md
-                        </button>
-                      </div>
-                    </div>
-
-                    <textarea
-                      value={weeklyConclusionText}
-                      onChange={(e) => setWeeklyConclusionText(e.target.value)}
-                      placeholder="Escribe aqui la conclusion o carga un archivo Markdown..."
-                      className="min-h-[220px] w-full rounded-lg border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20"
-                    />
-
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs text-muted-foreground">
-                        Semana: {weeklyConclusion?.week_start || '-'} a {weeklyConclusion?.week_end || '-'}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        {weeklyConclusion?.id ? (
+                        {weeklyConclusionText.trim() && (
                           <button
-                            onClick={() => handleDeleteWeeklyConclusion(weeklyConclusion.week_start)}
-                            disabled={weeklyConclusionSaving}
-                            className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
+                            onClick={() => conclusionFileInputRef.current?.click()}
+                            className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
                           >
-                            <Trash2 className="h-4 w-4" />
-                            Eliminar
+                            <Upload className="h-4 w-4" />
+                            Reemplazar .md
                           </button>
-                        ) : null}
-                        <button
-                          onClick={handleSaveWeeklyConclusion}
-                          disabled={weeklyConclusionSaving}
-                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-                        >
-                          <Save className="h-4 w-4" />
-                          {weeklyConclusionSaving ? 'Guardando...' : weeklyConclusion?.id ? 'Guardar cambios' : 'Guardar conclusion'}
-                        </button>
+                        )}
+                        {weeklyConclusionText.trim() && (
+                          <>
+                            <button
+                              onClick={() => void speakConclusion(weeklyConclusionText)}
+                              disabled={conclusionAudioLoading}
+                              title={conclusionSpeaking ? 'Detener audio' : conclusionAudioLoading ? 'Generando audio...' : 'Escuchar conclusión'}
+                              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                                conclusionSpeaking
+                                  ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20'
+                                  : 'border-input bg-background text-foreground hover:bg-muted'
+                              }`}
+                            >
+                              {conclusionSpeaking
+                                ? <><Square className="h-4 w-4" />Detener</>
+                                : conclusionAudioLoading
+                                  ? <><Volume2 className="h-4 w-4 animate-pulse" />Generando...</>
+                                  : <><Volume2 className="h-4 w-4" />Escuchar</>
+                              }
+                            </button>
+                            {weeklyConclusion?.id ? (
+                              <button
+                                onClick={() => handleDeleteWeeklyConclusion(weeklyConclusion.week_start)}
+                                disabled={weeklyConclusionSaving}
+                                className="inline-flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Eliminar
+                              </button>
+                            ) : null}
+                            <button
+                              onClick={handleSaveWeeklyConclusion}
+                              disabled={weeklyConclusionSaving}
+                              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                            >
+                              <Save className="h-4 w-4" />
+                              {weeklyConclusionSaving ? 'Guardando...' : weeklyConclusion?.id ? 'Guardar cambios' : 'Guardar'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
+
+                    {!weeklyConclusionText.trim() && (
+                      <div
+                        onClick={() => conclusionFileInputRef.current?.click()}
+                        className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-10 text-center transition-colors hover:border-primary hover:bg-primary/5"
+                      >
+                        <Upload className="h-6 w-6 text-muted-foreground" />
+                        <p className="text-sm text-muted-foreground">Carga un archivo <span className="font-medium text-foreground">.md</span> para esta semana</p>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1243,15 +1503,21 @@ export default function Progress() {
               Cerrar
             </button>
             <button
-              onClick={() => {
-                if (selectedConclusionModal) {
-                  setConclusionReferenceDate(selectedConclusionModal.week_start);
-                }
-                setSelectedConclusionModal(null);
-              }}
-              className="inline-flex items-center justify-center rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+              onClick={() => void speakConclusion(selectedConclusionModal?.content ?? '')}
+              disabled={conclusionAudioLoading}
+              title={conclusionSpeaking ? 'Detener audio' : conclusionAudioLoading ? 'Generando audio...' : 'Escuchar conclusión'}
+              className={`inline-flex items-center gap-2 justify-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                conclusionSpeaking
+                  ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/20'
+                  : 'border-input bg-background text-foreground hover:bg-muted'
+              }`}
             >
-              Editar
+              {conclusionSpeaking
+                ? <><Square className="h-4 w-4" />Detener</>
+                : conclusionAudioLoading
+                  ? <><Volume2 className="h-4 w-4 animate-pulse" />Generando...</>
+                  : <><Volume2 className="h-4 w-4" />Escuchar</>
+              }
             </button>
             <button
               onClick={() => {
@@ -1262,6 +1528,17 @@ export default function Progress() {
               className="inline-flex items-center justify-center rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               Eliminar
+            </button>
+            <button
+              onClick={() => {
+                if (selectedConclusionModal) {
+                  setConclusionReferenceDate(selectedConclusionModal.week_start);
+                }
+                setSelectedConclusionModal(null);
+              }}
+              className="inline-flex items-center justify-center rounded-lg border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              Editar
             </button>
           </DialogFooter>
         </DialogContent>

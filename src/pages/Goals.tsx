@@ -172,6 +172,7 @@ export default function Goals() {
   const [allGoalsMapped, setAllGoalsMapped] = useState<Goal[]>([]);
   const [historicSubgoalsLoaded, setHistoricSubgoalsLoaded] = useState(false);
   const [skippedGoalIds, setSkippedGoalIds] = useState<Set<string>>(new Set());
+  const [skippedSubGoalIds, setSkippedSubGoalIds] = useState<Set<string>>(new Set());
   const [showSkipped, setShowSkipped] = useState(false);
   const [folders, setFolders] = useState<GoalFolder[]>([]);
   const [rutinasCatalog, setRutinasCatalog] = useState<Rutina[]>([]);
@@ -278,7 +279,29 @@ export default function Goals() {
     goalsAPI.getSkippedGoals(todayKey)
       .then(ids => setSkippedGoalIds(new Set(ids.map(id => id.toString()))))
       .catch(error => console.error('Error loading skipped goals:', error));
+
+    goalsAPI.getSkippedSubGoals(todayKey)
+      .then(ids => setSkippedSubGoalIds(new Set(ids.map(id => id.toString()))))
+      .catch(error => console.error('Error loading skipped subgoals:', error));
   }, [todayKey]);
+
+  useEffect(() => {
+    setGoals(prev => prev.map(goal => ({
+      ...goal,
+      subGoals: goal.subGoals.map(subGoal => ({
+        ...subGoal,
+        skipped: skippedSubGoalIds.has(subGoal.id),
+      })),
+    })));
+
+    setAllGoalsMapped(prev => prev.map(goal => ({
+      ...goal,
+      subGoals: goal.subGoals.map(subGoal => ({
+        ...subGoal,
+        skipped: skippedSubGoalIds.has(subGoal.id),
+      })),
+    })));
+  }, [skippedSubGoalIds]);
 
   const loadTodayAsignaciones = async () => {
     try {
@@ -353,6 +376,7 @@ export default function Goals() {
   }, []);
 
   const isGoalSkippedToday = (goal: Goal) => goal.recurring && skippedGoalIds.has(goal.id);
+  const isSubGoalSkippedToday = (subGoalId: string) => skippedSubGoalIds.has(subGoalId);
 
   const getRutinasVinculadas = (goalId: string) =>
     rutinasCatalog.filter(r => (r.objetivos ?? []).some(o => o.id.toString() === goalId));
@@ -486,6 +510,22 @@ export default function Goals() {
   const handleCreate = () => {
     setEditingGoal(null);
     setModalOpen(true);
+  };
+
+  const handleRegisterCompletionForDate = async (goal: Goal, date: string) => {
+    if (goal.recurring) {
+      await goalsAPI.completeGoalForDate(goal.id, date);
+    } else {
+      await goalsAPI.updateGoal(goal.id, {
+        completado: true,
+        fecha_completado: `${date}T23:59:59`,
+      });
+    }
+
+    await loadGoals();
+    if (date === todayKey) {
+      await loadTodayAsignaciones();
+    }
   };
 
   const handleSave = async (data: any) => {
@@ -876,6 +916,8 @@ export default function Goals() {
   };
 
   const handleToggleSubGoal = (subGoalId: string) => {
+    if (skippedSubGoalIds.has(subGoalId)) return;
+
     setGoals(prev => prev.map(g => ({
       ...g,
       subGoals: g.subGoals.map(s => {
@@ -900,6 +942,46 @@ export default function Goals() {
     if (subGoal) {
       void persistSubGoalUpdate(subGoalId, { completed: !subGoal.completed });
     }
+  };
+
+  const handleSkipSubGoalToday = (subGoalId: string) => {
+    const subGoal = goals.flatMap(g => g.subGoals).find(s => s.id === subGoalId);
+    if (!subGoal) return;
+
+    const isCurrentlySkipped = skippedSubGoalIds.has(subGoalId);
+    const next = new Set(skippedSubGoalIds);
+    if (isCurrentlySkipped) {
+      next.delete(subGoalId);
+    } else {
+      next.add(subGoalId);
+    }
+
+    setSkippedSubGoalIds(next);
+    setGoals(prev => prev.map(g => ({
+      ...g,
+      subGoals: g.subGoals.map(s => s.id === subGoalId ? { ...s, skipped: !isCurrentlySkipped } : s),
+    })));
+
+    const request = isCurrentlySkipped
+      ? goalsAPI.unskipSubGoalForDate(subGoalId, todayKey)
+      : goalsAPI.skipSubGoalForDate(subGoalId, todayKey);
+
+    void request.catch(error => {
+      console.error('Error toggling skipped subgoal:', error);
+      setSkippedSubGoalIds(prev => {
+        const rollback = new Set(prev);
+        if (isCurrentlySkipped) {
+          rollback.add(subGoalId);
+        } else {
+          rollback.delete(subGoalId);
+        }
+        return rollback;
+      });
+      setGoals(prev => prev.map(g => ({
+        ...g,
+        subGoals: g.subGoals.map(s => s.id === subGoalId ? { ...s, skipped: isCurrentlySkipped } : s),
+      })));
+    });
   };
 
   const visibleGoals = (showSkipped
@@ -1063,6 +1145,7 @@ export default function Goals() {
             onFocusGoal: handleOpenGoalFocus,
             onDelete: handleDeleteGoal,
             onToggleSubGoal: handleToggleSubGoal,
+            onSkipSubGoalToday: handleSkipSubGoalToday,
             onSkipToday: handleSkipGoalToday,
           });
 
@@ -1143,6 +1226,7 @@ export default function Goals() {
                         onFocusGoal={handleOpenGoalFocus}
                         onDelete={handleDeleteGoal}
                         onToggleSubGoal={handleToggleSubGoal}
+                        onSkipSubGoalToday={handleSkipSubGoalToday}
                         onMakeCurrent={!goal.recurring ? handleMakeCurrent : undefined}
                       />
                     ))}
@@ -1163,6 +1247,7 @@ export default function Goals() {
         folders={folders}
         onFoldersChange={setFolders}
         onSave={handleSave}
+        onRegisterCompletionForDate={handleRegisterCompletionForDate}
       />
 
       <GoalFocusModal

@@ -396,6 +396,7 @@ class RutinaCreate(BaseModel):
     parte_dia: str
     color: Optional[str] = None
     descripcion: Optional[str] = None
+    dias_semana: List[int] = []
     bloques: List[RutinaBloqueCreate] = []
 
 
@@ -404,6 +405,7 @@ class RutinaUpdate(BaseModel):
     parte_dia: Optional[str] = None
     color: Optional[str] = None
     descripcion: Optional[str] = None
+    dias_semana: Optional[List[int]] = None
     bloques: Optional[List[RutinaBloqueCreate]] = None
 
 
@@ -413,6 +415,7 @@ class RutinaResponse(BaseModel):
     parte_dia: str
     color: Optional[str] = None
     descripcion: Optional[str] = None
+    dias_semana: List[int] = []
     activa: bool
     fecha_creacion: Optional[datetime] = None
     bloques: List[RutinaBloqueResponse] = []
@@ -430,6 +433,8 @@ class RutinaAsignacionCreate(BaseModel):
 
 class RutinaAsignacionUpdate(BaseModel):
     rutina_id: Optional[int] = None
+    fecha: Optional[str] = None
+    parte_dia: Optional[str] = None
     completada: Optional[bool] = None
     objetivo_ids: Optional[List[int]] = None
 
@@ -440,6 +445,7 @@ class RutinaAsignacionResponse(BaseModel):
     parte_dia: str
     rutina_id: int
     completada: bool
+    es_automatica: bool = False
     objetivo_ids: List[int] = []
     rutina: RutinaResponse
 

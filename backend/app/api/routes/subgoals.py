@@ -6,12 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.subgoal_schemas import (
-    SubGoalCreate, SubGoalUpdate, SubGoalResponse
+    SubGoalCreate, SubGoalUpdate, SubGoalResponse, SubGoalSkipDayResponse
 )
 from app.services.subgoal_service import SubGoalService
 from typing import List
 
 router = APIRouter(tags=["subgoals"])
+
+
+@router.get("/api/subgoals/skips", response_model=List[int])
+def list_skipped_subgoals(fecha: str, db: Session = Depends(get_db)):
+    """Obtener IDs de subobjetivos saltados para una fecha."""
+    return SubGoalService.get_skipped_subgoal_ids(db, fecha)
 
 
 @router.get("/api/goals/{goal_id}/subgoals", response_model=List[SubGoalResponse])
@@ -35,6 +41,24 @@ def update_subgoal(subgoal_id: int, subgoal: SubGoalUpdate, db: Session = Depend
     if not db_subgoal:
         raise HTTPException(status_code=404, detail="SubGoal not found")
     return db_subgoal
+
+
+@router.post("/api/subgoals/{subgoal_id}/skip", response_model=SubGoalSkipDayResponse, status_code=201)
+def skip_subgoal_for_date(subgoal_id: int, fecha: str, db: Session = Depends(get_db)):
+    """Marcar un subobjetivo como saltado para una fecha."""
+    skipped = SubGoalService.skip_subgoal_for_date(db, subgoal_id, fecha)
+    if not skipped:
+        raise HTTPException(status_code=404, detail="Recurring subgoal not found")
+    return SubGoalSkipDayResponse(subgoal_id=skipped.subobjetivo_id, fecha=skipped.fecha)
+
+
+@router.delete("/api/subgoals/{subgoal_id}/skip")
+def unskip_subgoal_for_date(subgoal_id: int, fecha: str, db: Session = Depends(get_db)):
+    """Quitar el estado de saltado de un subobjetivo para una fecha."""
+    removed = SubGoalService.unskip_subgoal_for_date(db, subgoal_id, fecha)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skipped subgoal entry not found")
+    return {"message": "Subgoal skip removed"}
 
 
 @router.delete("/api/subgoals/{subgoal_id}", status_code=204)

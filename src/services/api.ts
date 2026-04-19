@@ -120,6 +120,11 @@ export const goalsAPI = {
     if (!response.ok) throw new Error('Error fetching subgoals');
     return response.json();
   },
+  getSkippedSubGoals: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/skips?fecha=${date}`);
+    if (!response.ok) throw new Error('Error fetching skipped subgoals');
+    return response.json() as Promise<number[]>;
+  },
   updateSubGoal: async (subGoalId: number | string, updates: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}`, {
       method: 'PATCH',
@@ -157,6 +162,20 @@ export const goalsAPI = {
       },
     });
     if (!response.ok) throw new Error('Error deleting subgoal');
+    return response.json();
+  },
+  skipSubGoalForDate: async (subGoalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Error skipping subgoal for date');
+    return response.json() as Promise<{ subgoal_id: number; fecha: string }>;
+  },
+  unskipSubGoalForDate: async (subGoalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error removing skipped subgoal for date');
     return response.json();
   },
 };
@@ -567,10 +586,10 @@ export const reportsAPI = {
     }
     return response.json();
   },
-  sendPreviousWeekReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/send-weekly`, {
-      method: 'POST',
-    });
+  sendPreviousWeekReport: async (weekOf?: string) => {
+    let url = `${API_BASE_URL}/reports/send-weekly`;
+    if (weekOf) url += `?week_of=${weekOf}`;
+    const response = await fetch(url, { method: 'POST' });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error sending previous week report');
@@ -587,10 +606,10 @@ export const reportsAPI = {
     }
     return response.json();
   },
-  sendPreviousMonthReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/send-monthly`, {
-      method: 'POST',
-    });
+  sendPreviousMonthReport: async (monthOf?: string) => {
+    let url = `${API_BASE_URL}/reports/send-monthly`;
+    if (monthOf) url += `?month_of=${monthOf}`;
+    const response = await fetch(url, { method: 'POST' });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error sending previous month report');
@@ -811,6 +830,7 @@ export interface GoalSimple {
   icono?: string;
   categoria?: string;
   frecuencia?: string;
+  parte_dia?: 'morning' | 'afternoon' | 'evening' | null;
 }
 
 export interface RutinaBloque {
@@ -829,6 +849,7 @@ export interface Rutina {
   parte_dia: 'morning' | 'afternoon' | 'evening';
   color?: string;
   descripcion?: string;
+  dias_semana: number[];
   activa: boolean;
   fecha_creacion?: string;
   bloques: RutinaBloque[];
@@ -841,6 +862,7 @@ export interface RutinaAsignacion {
   parte_dia: string;
   rutina_id: number;
   completada: boolean;
+  es_automatica: boolean;
   objetivo_ids: number[];
   rutina: Rutina;
 }
@@ -905,8 +927,9 @@ export interface RutinaReportRoutineBreakdownGoalItem {
 export interface RutinaReportRoutineBreakdownDayItem {
   date: string;
   completed_assignment: boolean;
-  progress_percent: number;
+  progress_percent: number | null;
   progress_label: string;
+  is_neutral: boolean;
   goal_count: number;
   completed_count: number;
   skipped_count: number;
@@ -922,6 +945,7 @@ export interface RutinaReportRoutineBreakdownItem {
   assigned: number;
   completed: number;
   failed_days: number;
+  neutral_days: number;
   linked_goals: number;
   average_progress_percent: number;
   days: RutinaReportRoutineBreakdownDayItem[];
@@ -970,7 +994,26 @@ function normalizeRutinaReportData(data: any): RutinaReportData {
       distinct_goals: Number(data?.goal_completion_summary?.distinct_goals ?? 0),
     },
     goal_completion_log: Array.isArray(data?.goal_completion_log) ? data.goal_completion_log : [],
-    routine_breakdown: Array.isArray(data?.routine_breakdown) ? data.routine_breakdown : [],
+    routine_breakdown: Array.isArray(data?.routine_breakdown)
+      ? data.routine_breakdown.map((routine: any) => ({
+          ...routine,
+          failed_days: Number(routine?.failed_days ?? 0),
+          neutral_days: Number(routine?.neutral_days ?? 0),
+          average_progress_percent: Number(routine?.average_progress_percent ?? 0),
+          days: Array.isArray(routine?.days)
+            ? routine.days.map((day: any) => ({
+                ...day,
+                progress_percent: day?.progress_percent == null ? null : Number(day.progress_percent),
+                is_neutral: Boolean(day?.is_neutral),
+                completed_count: Number(day?.completed_count ?? 0),
+                skipped_count: Number(day?.skipped_count ?? 0),
+                pending_count: Number(day?.pending_count ?? 0),
+                goal_count: Number(day?.goal_count ?? 0),
+                goals: Array.isArray(day?.goals) ? day.goals : [],
+              }))
+            : [],
+        }))
+      : [],
     streaks: {
       current: Number(data?.streaks?.current ?? 0),
       max: Number(data?.streaks?.max ?? 0),
@@ -995,6 +1038,7 @@ export const rutinasAPI = {
     parte_dia: string;
     color?: string;
     descripcion?: string;
+    dias_semana: number[];
     bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
     const r = await fetch(`${API_BASE_URL}/rutinas`, {
@@ -1011,6 +1055,7 @@ export const rutinasAPI = {
     parte_dia?: string;
     color?: string;
     descripcion?: string;
+    dias_semana?: number[];
     bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
     const r = await fetch(`${API_BASE_URL}/rutinas/${id}`, {
@@ -1049,6 +1094,8 @@ export const rutinasAPI = {
 
   updateAsignacion: async (id: number, data: {
     rutina_id?: number;
+    fecha?: string;
+    parte_dia?: string;
     completada?: boolean;
     objetivo_ids?: number[];
   }): Promise<RutinaAsignacion> => {
