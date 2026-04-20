@@ -334,7 +334,10 @@ def download_rutina_report(
 
     data = build_rutina_report(db, normalized_mode, _parse_reference_date(reference_date))
     html = build_html_rutina_report(data)
-    filename = f"informe-rutinas-{normalized_mode}-{data['period_start']}_{data['period_end']}.html"
+    if normalized_mode == "weekly":
+        filename = f"informe-rutinas-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.html"
+    else:
+        filename = f"informe-rutinas-{normalized_mode}-{data['period_start']}_{data['period_end']}.html"
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",

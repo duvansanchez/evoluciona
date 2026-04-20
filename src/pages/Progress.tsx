@@ -83,7 +83,11 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 function buildPhraseFilename(mode: 'weekly' | 'monthly', referenceDate: string) {
-  return `informe-frases-${mode}-${referenceDate}.md`;
+  if (mode === 'weekly') {
+    const { from, to } = getWeekRangeIso(referenceDate);
+    return `informe-frases-semanal-desde-${from}-hasta-${to}.html`;
+  }
+  return `informe-frases-mensual-${referenceDate}.html`;
 }
 
 function buildQuestionsFilename(scope: 'current-week' | 'previous-week' | 'current-month' | 'previous-month') {
@@ -96,6 +100,23 @@ function getWeekMonday(referenceDate: string): Date {
   const diff = day === 0 ? -6 : 1 - day;
   date.setDate(date.getDate() + diff);
   return date;
+}
+
+function toIsoDateLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getWeekRangeIso(referenceDate: string): { from: string; to: string } {
+  const monday = getWeekMonday(referenceDate);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    from: toIsoDateLocal(monday),
+    to: toIsoDateLocal(sunday),
+  };
 }
 
 function formatQuestionsWeekLabel(referenceDate: string): string {
@@ -140,7 +161,11 @@ function getMonthRef(referenceDate: string): string {
 }
 
 function buildRutinasFilename(mode: 'weekly' | 'monthly', referenceDate: string) {
-  return `informe-rutinas-${mode}-${referenceDate}.html`;
+  if (mode === 'weekly') {
+    const { from, to } = getWeekRangeIso(referenceDate);
+    return `informe-rutinas-semanal-desde-${from}-hasta-${to}.html`;
+  }
+  return `informe-rutinas-mensual-${referenceDate}.html`;
 }
 
 function getReportTypeLabel(type: string) {

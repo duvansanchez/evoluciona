@@ -302,7 +302,7 @@ def download_weekly_report(
     html = build_html_report(data)
     return _html_download_response(
         html,
-        f"informe-preguntas-semanal-{week_start}_{week_end}.html",
+        f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}.html",
     )
 
 
@@ -531,7 +531,7 @@ def download_current_week_report(db: Session = Depends(get_db)):
     html = build_html_report(data)
     return _html_download_response(
         html,
-        f"informe-preguntas-semana-actual-{today.isoformat()}.html",
+        f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}.html",
     )
 
 

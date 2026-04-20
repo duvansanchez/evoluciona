@@ -3,7 +3,7 @@ Endpoints para frases (Phrases y Categories).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -393,6 +393,39 @@ def generate_phrase_audio(payload: PhraseAudioRequest):
         iter([audio_bytes]),
         media_type="audio/mpeg",
         headers={"Content-Disposition": 'inline; filename="phrase-audio.mp3"'},
+    )
+
+
+@router.get("/report/download")
+def download_phrase_report(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Descarga el informe de frases del periodo como archivo HTML."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    parsed_reference: date | None = None
+    if reference_date:
+        try:
+            parsed_reference = date.fromisoformat(reference_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
+
+    data = build_phrase_report(db, normalized_mode, parsed_reference)
+    html = build_html_phrase_report(data)
+    if normalized_mode == "weekly":
+        filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.html"
+    else:
+        period = data.get("period_label", reference_date or "informe")
+        filename = f"informe-frases-mensual-{period}.html"
+
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

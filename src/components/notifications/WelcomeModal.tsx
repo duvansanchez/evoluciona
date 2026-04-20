@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, BrainCircuit, CalendarDays, ChevronDown, ChevronUp, Target, Wallet } from 'lucide-react';
-import { goalsAPI, integrationsAPI } from '@/services/api';
-import type { ExternalGoal } from '@/services/api';
+import { Bell, BrainCircuit, CalendarDays, ChevronDown, ChevronUp, Play, Square, Sun, Target, Wallet } from 'lucide-react';
+import { goalsAPI, integrationsAPI, phrasesAPI } from '@/services/api';
+import type { ExternalGoal, PhraseAudioPreferences, PhraseAudioStatus } from '@/services/api';
 import {
   shouldShowNotification,
   markNotificationShown,
@@ -21,7 +21,8 @@ type GoalItem = {
 
 const PREVIEW = 3;
 const AUTO_DISMISS_MS = 28000;
-const DAYS_ES = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab'] as const;
+const DEFAULT_AUDIO_RATE = 1;
+const DEFAULT_AUDIO_PITCH = 1;
 const TIME_REMINDERS = [
   'Un dia parece mucho. Siete pasan volando.',
   'No te sobra tiempo. Solo te quedan decisiones.',
@@ -34,6 +35,7 @@ const TIME_REMINDERS = [
 
 function normalizeCategory(cat: string | null | undefined): string {
   const value = (cat ?? '').toLowerCase().trim();
+  if (value === 'diario' || value === 'diarios' || value === 'daily') return 'daily';
   if (value === 'semanal' || value === 'semanales' || value === 'weekly') return 'weekly';
   if (value === 'mensual' || value === 'mensuales' || value === 'monthly') return 'monthly';
   return value;
@@ -133,17 +135,30 @@ function getDaysLeftInYear(): number {
 export default function WelcomeModal() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const [dailyGoals, setDailyGoals] = useState<GoalItem[]>([]);
   const [weeklyGoals, setWeeklyGoals] = useState<GoalItem[]>([]);
   const [monthlyGoals, setMonthlyGoals] = useState<GoalItem[]>([]);
   const [financeGoals, setFinanceGoals] = useState<ExternalGoal[]>([]);
   const [mindfulGoals, setMindfulGoals] = useState<ExternalGoal[]>([]);
   const [showMindfulDetails, setShowMindfulDetails] = useState(false);
+  const [currentSpeechSection, setCurrentSpeechSection] = useState<string | null>(null);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [audioProvider, setAudioProvider] = useState<PhraseAudioStatus['provider']>('browser');
+  const [selectedVoiceName, setSelectedVoiceName] = useState<string>('');
+  const [audioRate, setAudioRate] = useState<number>(DEFAULT_AUDIO_RATE);
+  const [audioPitch, setAudioPitch] = useState<number>(DEFAULT_AUDIO_PITCH);
+  const [voicesLoaded, setVoicesLoaded] = useState<SpeechSynthesisVoice[]>([]);
   const [expandedWeekly, setExpandedWeekly] = useState(false);
+  const [expandedDaily, setExpandedDaily] = useState(false);
   const [expandedMonthly, setExpandedMonthly] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(Math.ceil(AUTO_DISMISS_MS / 1000));
   const [externalLoading, setExternalLoading] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
+  const audioRequestIdRef = useRef(0);
 
   const clearTimers = () => {
     if (timerRef.current) {
@@ -156,7 +171,149 @@ export default function WelcomeModal() {
     }
   };
 
+  const stopSpeech = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current = null;
+    }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current);
+      currentAudioUrlRef.current = null;
+    }
+    audioRequestIdRef.current += 1;
+    speechUtteranceRef.current = null;
+    setCurrentSpeechSection(null);
+  };
+
+  const getPreferredVoice = () => {
+    if (voicesLoaded.length === 0) return null;
+
+    if (selectedVoiceName) {
+      const selectedVoice = voicesLoaded.find((voice) => voice.name === selectedVoiceName);
+      if (selectedVoice) return selectedVoice;
+    }
+
+    const availableSpanishVoices = voicesLoaded.filter((voice) => voice.lang.toLowerCase().startsWith('es'));
+    if (availableSpanishVoices.length === 0) return voicesLoaded.find((voice) => voice.default) || voicesLoaded[0];
+
+    return availableSpanishVoices.find((voice) => voice.default) || availableSpanishVoices[0];
+  };
+
+  const speakWithBrowser = (section: string, text: string) => {
+    const utterance = new SpeechSynthesisUtterance(text);
+    const preferredVoice = getPreferredVoice();
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+      utterance.lang = preferredVoice.lang;
+    } else {
+      utterance.lang = 'es-CO';
+    }
+    utterance.rate = audioRate;
+    utterance.pitch = audioPitch;
+    utterance.onstart = () => setCurrentSpeechSection(section);
+    utterance.onend = () => {
+      speechUtteranceRef.current = null;
+      setCurrentSpeechSection(null);
+    };
+    utterance.onerror = () => {
+      speechUtteranceRef.current = null;
+      setCurrentSpeechSection(null);
+    };
+
+    speechUtteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const speakWithServiceAudio = async (section: string, text: string) => {
+    const requestId = audioRequestIdRef.current + 1;
+    audioRequestIdRef.current = requestId;
+
+    try {
+      const audioBlob = await phrasesAPI.generateAudio(text, {
+        rate: audioRate,
+        pitch: audioPitch,
+      });
+      if (audioRequestIdRef.current !== requestId) return;
+
+      const audioUrl = URL.createObjectURL(audioBlob);
+      currentAudioUrlRef.current = audioUrl;
+      const audio = new Audio(audioUrl);
+      audioElementRef.current = audio;
+
+      audio.onplay = () => setCurrentSpeechSection(section);
+      audio.onended = () => {
+        setCurrentSpeechSection(null);
+        audioElementRef.current = null;
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+          currentAudioUrlRef.current = null;
+        }
+      };
+      audio.onerror = () => {
+        setCurrentSpeechSection(null);
+      };
+
+      await audio.play();
+    } catch (error) {
+      console.error('Error reproduciendo audio de metas:', error);
+      setCurrentSpeechSection(null);
+    }
+  };
+
+  const speakText = (section: string, text: string) => {
+    if (!speechSupported || !text.trim()) return;
+
+    if (currentSpeechSection === section) {
+      stopSpeech();
+      return;
+    }
+
+    stopSpeech();
+    if (audioProvider === 'edge' || audioProvider === 'elevenlabs') {
+      void speakWithServiceAudio(section, text);
+      return;
+    }
+    speakWithBrowser(section, text);
+  };
+
+  const buildInternalGoalsSpeechText = (label: string, goals: GoalItem[]) => {
+    if (goals.length === 0) return `No tienes metas ${label} pendientes.`;
+    const goalsText = goals.map((goal, index) => `${index + 1}. ${goal.titulo}.`).join(' ');
+    return `Metas ${label} pendientes. ${goalsText}`;
+  };
+
+  const buildExternalGoalsSpeechText = (label: string, goals: ExternalGoal[]) => {
+    if (goals.length === 0) return `No tienes metas pendientes en ${label}.`;
+    const goalsText = goals
+      .map((goal, index) => {
+        const description = goal.description?.trim() ? ` ${goal.description.trim()}.` : '';
+        return `${index + 1}. ${goal.title}.${description}`;
+      })
+      .join(' ');
+    return `Metas pendientes en ${label}. ${goalsText}`;
+  };
+
+  const renderSpeechButton = (section: string, text: string) => {
+    if (!speechSupported) return null;
+
+    const active = currentSpeechSection === section;
+    return (
+      <button
+        type="button"
+        onClick={() => speakText(section, text)}
+        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${active ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-foreground hover:bg-muted'}`}
+      >
+        {active ? <Square className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        {active ? 'Detener' : 'Escuchar'}
+      </button>
+    );
+  };
+
   const dismiss = () => {
+    stopSpeech();
     clearTimers();
     setExiting(true);
     setTimeout(() => {
@@ -202,6 +359,9 @@ export default function WelcomeModal() {
       }
 
       const goals: GoalItem[] = goalsResult.value.items;
+      const daily = goals.filter(
+        (goal) => normalizeCategory(goal.categoria) === 'daily' && !isGoalEffectivelyCompleted(goal) && shouldKeepGoalVisible(goal),
+      );
       const weekly = goals.filter(
         (goal) => normalizeCategory(goal.categoria) === 'weekly' && !isGoalEffectivelyCompleted(goal) && shouldKeepGoalVisible(goal),
       );
@@ -211,16 +371,18 @@ export default function WelcomeModal() {
       const finance = financeResult.status === 'fulfilled' ? financeResult.value : [];
       const mindful = mindfulResult.status === 'fulfilled' ? mindfulResult.value : [];
 
+      setDailyGoals(daily);
       setWeeklyGoals(weekly);
       setMonthlyGoals(monthly);
       setFinanceGoals(finance);
       setMindfulGoals(mindful);
+      setExpandedDaily(false);
       setExpandedWeekly(false);
       setExpandedMonthly(false);
       setShowMindfulDetails(false);
       setExternalLoading(false);
 
-      if (weekly.length > 0 || monthly.length > 0 || finance.length > 0 || mindful.length > 0) {
+      if (daily.length > 0 || weekly.length > 0 || monthly.length > 0 || finance.length > 0 || mindful.length > 0) {
         setExiting(false);
         setVisible(true);
         startAutoDismiss();
@@ -234,8 +396,34 @@ export default function WelcomeModal() {
   };
 
   useEffect(() => {
+    const hasSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window;
+    setSpeechSupported(hasSpeech);
+
     const handleManualOpen = () => {
       void fetchData(true);
+    };
+
+    const loadAudioConfiguration = async () => {
+      try {
+        const [status, preferences] = await Promise.all([
+          phrasesAPI.getAudioStatus(),
+          phrasesAPI.getAudioPreferences(),
+        ]);
+        setAudioProvider(status.provider || 'browser');
+        setSelectedVoiceName(preferences.selected_voice_name || '');
+        setAudioRate(preferences.rate ?? DEFAULT_AUDIO_RATE);
+        setAudioPitch(preferences.pitch ?? DEFAULT_AUDIO_PITCH);
+      } catch (error) {
+        console.error('Error cargando configuracion de audio para notificaciones:', error);
+      }
+    };
+
+    const syncVoices = () => {
+      if (!hasSpeech) return;
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        setVoicesLoaded(voices);
+      }
     };
 
     if (shouldShowNotification()) {
@@ -243,10 +431,20 @@ export default function WelcomeModal() {
     }
 
     window.addEventListener(OPEN_WELCOME_MODAL_EVENT, handleManualOpen);
+    void loadAudioConfiguration();
+
+    if (hasSpeech) {
+      syncVoices();
+      window.speechSynthesis.addEventListener('voiceschanged', syncVoices);
+    }
 
     return () => {
+      stopSpeech();
       clearTimers();
       window.removeEventListener(OPEN_WELCOME_MODAL_EVENT, handleManualOpen);
+      if (hasSpeech) {
+        window.speechSynthesis.removeEventListener('voiceschanged', syncVoices);
+      }
     };
   }, []);
 
@@ -263,18 +461,10 @@ export default function WelcomeModal() {
 
   if (!visible) return null;
 
-  const total = weeklyGoals.length + monthlyGoals.length + financeGoals.length + mindfulGoals.length;
+  const total = dailyGoals.length + weeklyGoals.length + monthlyGoals.length + financeGoals.length + mindfulGoals.length;
   const daysLeftInYear = getDaysLeftInYear();
-  const sevenDayTimeline = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date();
-    date.setDate(date.getDate() + index);
-    return {
-      key: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
-      label: DAYS_ES[date.getDay()],
-      dayNumber: date.getDate(),
-      reminder: TIME_REMINDERS[index],
-    };
-  });
+  const today = new Date();
+  const reminderOfDay = TIME_REMINDERS[today.getDay() % TIME_REMINDERS.length];
 
   return (
     <div
@@ -337,59 +527,89 @@ export default function WelcomeModal() {
                 <p className="text-2xl font-bold text-foreground">
                   Faltan <span className="text-primary">{daysLeftInYear}</span> dia{daysLeftInYear !== 1 ? 's' : ''} para que se acabe el año
                 </p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground dark:text-foreground/85">
                   Parece mucho cuando se mira de lejos. En la práctica, cada semana se consume más rápido de lo que se siente.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
-                {sevenDayTimeline.map((item) => (
-                  <div
-                    key={item.key}
-                    className="rounded-xl border border-border/70 bg-background/70 p-3"
-                  >
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-                        {item.label}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {item.dayNumber}
-                      </span>
-                    </div>
-                    <p className="text-xs leading-relaxed text-foreground/90">
-                      {item.reminder}
-                    </p>
-                  </div>
-                ))}
+              <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  Frase del dia
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                  {reminderOfDay}
+                </p>
               </div>
             </div>
           </div>
 
+          {dailyGoals.length > 0 && (
+            <div className="rounded-2xl border border-yellow-500/20 bg-yellow-500/8 p-5">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sun className="h-4 w-4 text-yellow-500" />
+                  <span className="text-sm font-semibold uppercase tracking-wide text-yellow-600 dark:text-yellow-400">
+                    Diarias - {dailyGoals.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {renderSpeechButton('daily', buildInternalGoalsSpeechText('diarias', dailyGoals))}
+                  {dailyGoals.length > PREVIEW && (
+                    <button
+                      onClick={() => setExpandedDaily((value) => !value)}
+                      className="flex items-center gap-0.5 text-xs text-yellow-600 hover:underline dark:text-yellow-400"
+                    >
+                      {expandedDaily ? (
+                        <>
+                          <ChevronUp className="h-3.5 w-3.5" /> Ver menos
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-3.5 w-3.5" /> Ver mas
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <ul className="space-y-2">
+                {(expandedDaily ? dailyGoals : dailyGoals.slice(0, PREVIEW)).map((goal, index) => (
+                  <li key={`daily-${index}`} className="text-base text-foreground">
+                    - {goal.titulo}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {weeklyGoals.length > 0 && (
             <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 p-5">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-amber-500" />
                   <span className="text-sm font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                     Semanales - {weeklyGoals.length}
                   </span>
                 </div>
-                {weeklyGoals.length > PREVIEW && (
-                  <button
-                    onClick={() => setExpandedWeekly((value) => !value)}
-                    className="flex items-center gap-0.5 text-xs text-amber-600 hover:underline dark:text-amber-400"
-                  >
-                    {expandedWeekly ? (
-                      <>
-                        <ChevronUp className="h-3.5 w-3.5" /> Ver menos
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="h-3.5 w-3.5" /> Ver mas
-                      </>
-                    )}
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  {renderSpeechButton('weekly', buildInternalGoalsSpeechText('semanales', weeklyGoals))}
+                  {weeklyGoals.length > PREVIEW && (
+                    <button
+                      onClick={() => setExpandedWeekly((value) => !value)}
+                      className="flex items-center gap-0.5 text-xs text-amber-600 hover:underline dark:text-amber-400"
+                    >
+                      {expandedWeekly ? (
+                        <>
+                          <ChevronUp className="h-3.5 w-3.5" /> Ver menos
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-3.5 w-3.5" /> Ver mas
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
               <ul className="space-y-2">
                 {(expandedWeekly ? weeklyGoals : weeklyGoals.slice(0, PREVIEW)).map((goal, index) => (
@@ -439,11 +659,14 @@ export default function WelcomeModal() {
 
           <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
             <div className="h-fit rounded-2xl border border-emerald-500/20 bg-emerald-500/8 p-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                  Finance Hub - {externalLoading ? '...' : financeGoals.length}
-                </span>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-emerald-500" />
+                  <span className="text-sm font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                    Finance Hub - {externalLoading ? '...' : financeGoals.length}
+                  </span>
+                </div>
+                {!externalLoading && renderSpeechButton('finance', buildExternalGoalsSpeechText('Finance Hub', financeGoals))}
               </div>
               {externalLoading ? (
                 <p className="text-sm text-muted-foreground">Cargando metas externas...</p>
@@ -454,17 +677,15 @@ export default function WelcomeModal() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={openMindfulDetails}
-              disabled={externalLoading || mindfulGoals.length === 0}
-              className="h-fit rounded-2xl border border-sky-500/20 bg-sky-500/8 p-5 text-left transition hover:bg-sky-500/12 disabled:cursor-default disabled:hover:bg-sky-500/8"
-            >
-              <div className="mb-3 flex items-center gap-2">
-                <BrainCircuit className="h-4 w-4 text-sky-500" />
-                <span className="text-sm font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
-                  Mindful Study - {externalLoading ? '...' : mindfulGoals.length}
-                </span>
+            <div className="h-fit rounded-2xl border border-sky-500/20 bg-sky-500/8 p-5 text-left">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <BrainCircuit className="h-4 w-4 text-sky-500" />
+                  <span className="text-sm font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
+                    Mindful Study - {externalLoading ? '...' : mindfulGoals.length}
+                  </span>
+                </div>
+                {!externalLoading && renderSpeechButton('mindful', buildExternalGoalsSpeechText('Mindful Study', mindfulGoals))}
               </div>
               {externalLoading ? (
                 <p className="text-sm text-muted-foreground">Cargando metas externas...</p>
@@ -474,11 +695,15 @@ export default function WelcomeModal() {
                 <p className="text-sm text-muted-foreground">Sin metas pendientes.</p>
               )}
               {!externalLoading && mindfulGoals.length > 0 && (
-                <p className="mt-3 text-xs font-medium text-sky-600 dark:text-sky-400">
-                  Toca para ver todas las metas
-                </p>
+                <button
+                  type="button"
+                  onClick={openMindfulDetails}
+                  className="mt-3 text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                >
+                  Ver todas las metas
+                </button>
               )}
-            </button>
+            </div>
           </div>
 
           <div className="w-full rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-center text-sm font-medium text-primary">
