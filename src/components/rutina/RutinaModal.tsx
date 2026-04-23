@@ -1,7 +1,18 @@
 import { useState, useEffect } from 'react';
-import { X, Sun, Sunset, Moon, Target } from 'lucide-react';
+import { X, Sun, Sunset, Moon, Target, Tag } from 'lucide-react';
 import type { Rutina, GoalSimple } from '@/services/api';
 import { goalsAPI, rutinasAPI } from '@/services/api';
+
+const RUTINA_CATEGORIAS = [
+  { value: 'Salud', emoji: '💪' },
+  { value: 'Trabajo', emoji: '💼' },
+  { value: 'Estudio', emoji: '📚' },
+  { value: 'Personal', emoji: '🌱' },
+  { value: 'Hogar', emoji: '🏠' },
+  { value: 'Deporte', emoji: '🏃' },
+  { value: 'Finanzas', emoji: '💰' },
+  { value: 'Bienestar', emoji: '🧘' },
+] as const;
 
 const QUICK_GOAL_CATEGORIES = [
   { value: 'daily', label: 'Diario' },
@@ -54,6 +65,7 @@ interface Props {
     nombre: string;
     parte_dia: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
     dias_semana: number[];
     objetivoIds: number[];
@@ -64,6 +76,9 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
   const [nombre, setNombre] = useState('');
   const [parteDia, setParteDia] = useState<string>('morning');
   const [color, setColor] = useState<string>('blue');
+  const [categoria, setCategoria] = useState<string>('');
+  const [customCategoria, setCustomCategoria] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
   const [descripcion, setDescripcion] = useState('');
   const [diasSemana, setDiasSemana] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -92,10 +107,28 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
       setDescripcion(rutina.descripcion || '');
       setDiasSemana(new Set(rutina.dias_semana ?? []));
       setSelectedGoalIds(new Set((rutina.objetivos ?? []).map(g => g.id)));
+      const cat = rutina.categoria || '';
+      const isPreset = RUTINA_CATEGORIAS.some(c => c.value === cat);
+      if (isPreset) {
+        setCategoria(cat);
+        setCustomCategoria('');
+        setShowCustomInput(false);
+      } else if (cat) {
+        setCategoria('__custom__');
+        setCustomCategoria(cat);
+        setShowCustomInput(true);
+      } else {
+        setCategoria('');
+        setCustomCategoria('');
+        setShowCustomInput(false);
+      }
     } else {
       setNombre('');
       setParteDia(defaultParteDia || 'morning');
       setColor('blue');
+      setCategoria('');
+      setCustomCategoria('');
+      setShowCustomInput(false);
       setDescripcion('');
       setDiasSemana(new Set());
       setSelectedGoalIds(new Set());
@@ -184,11 +217,15 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
   const handleSave = async () => {
     if (!nombre.trim()) return;
     setSaving(true);
+    const resolvedCategoria = categoria === '__custom__'
+      ? customCategoria.trim() || undefined
+      : categoria || undefined;
     try {
       await onSave({
         nombre: nombre.trim(),
         parte_dia: parteDia,
         color,
+        categoria: resolvedCategoria,
         descripcion: descripcion.trim() || undefined,
         dias_semana: Array.from(diasSemana).sort((a, b) => a - b),
         objetivoIds: Array.from(selectedGoalIds),
@@ -273,6 +310,68 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                   />
                 ))}
               </div>
+            </div>
+
+            {/* Categoría */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block flex items-center gap-1.5">
+                <Tag className="h-3 w-3" />
+                Categoría (opcional)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {RUTINA_CATEGORIAS.map(cat => (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => {
+                      setCategoria(cat.value);
+                      setShowCustomInput(false);
+                      setCustomCategoria('');
+                    }}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                      categoria === cat.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <span>{cat.emoji}</span>
+                    {cat.value}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoria('__custom__');
+                    setShowCustomInput(true);
+                  }}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    categoria === '__custom__'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  ✏️ Otra
+                </button>
+                {categoria && (
+                  <button
+                    type="button"
+                    onClick={() => { setCategoria(''); setCustomCategoria(''); setShowCustomInput(false); }}
+                    className="flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    ✕ Sin categoría
+                  </button>
+                )}
+              </div>
+              {showCustomInput && (
+                <input
+                  type="text"
+                  value={customCategoria}
+                  onChange={e => setCustomCategoria(e.target.value)}
+                  placeholder="Ej: Meditación, Arte, Idiomas..."
+                  maxLength={50}
+                  className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              )}
             </div>
 
             {/* Descripción */}

@@ -33,6 +33,7 @@ def _rutina_to_dict(r: Rutina) -> dict:
         "nombre": r.nombre,
         "parte_dia": r.parte_dia,
         "color": r.color,
+        "categoria": r.categoria,
         "descripcion": r.descripcion,
         "dias_semana": json.loads(r.dias_semana) if r.dias_semana else [],
         "activa": r.activa,
@@ -151,6 +152,7 @@ def create_rutina(data: RutinaCreate, db: Session = Depends(get_db)):
         nombre=data.nombre,
         parte_dia=data.parte_dia,
         color=data.color,
+        categoria=data.categoria,
         descripcion=data.descripcion,
         dias_semana=json.dumps(data.dias_semana or []),
         activa=True,
@@ -365,6 +367,8 @@ def update_rutina(rutina_id: int, data: RutinaUpdate, db: Session = Depends(get_
         r.parte_dia = data.parte_dia
     if data.color is not None:
         r.color = data.color
+    if data.categoria is not None:
+        r.categoria = data.categoria
     if data.descripcion is not None:
         r.descripcion = data.descripcion
     if data.dias_semana is not None:

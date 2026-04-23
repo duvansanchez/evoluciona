@@ -18,7 +18,7 @@ from app.schemas.schemas import (
 from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService, build_phrase_report
 )
-from app.services.email_service import build_html_phrase_report, send_weekly_report
+from app.services.email_service import build_html_phrase_report, build_markdown_phrase_report, send_weekly_report
 from app.services.tts_service import (
     TTSServiceError,
     get_tts_status,
@@ -415,16 +415,16 @@ def download_phrase_report(
             raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
 
     data = build_phrase_report(db, normalized_mode, parsed_reference)
-    html = build_html_phrase_report(data)
+    md = build_markdown_phrase_report(data)
     if normalized_mode == "weekly":
-        filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.html"
+        filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.md"
     else:
         period = data.get("period_label", reference_date or "informe")
-        filename = f"informe-frases-mensual-{period}.html"
+        filename = f"informe-frases-mensual-{period}.md"
 
     return Response(
-        content=html,
-        media_type="text/html; charset=utf-8",
+        content=md.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

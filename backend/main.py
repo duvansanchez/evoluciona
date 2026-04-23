@@ -77,6 +77,20 @@ try:
                 ALTER TABLE subobjetivos ADD folder_id INT NULL
             """))
             conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'objetivo_saltado_dias') AND name = N'motivo'
+                )
+                ALTER TABLE objetivo_saltado_dias ADD motivo NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'subobjetivo_saltado_dias') AND name = N'motivo'
+                )
+                ALTER TABLE subobjetivo_saltado_dias ADD motivo NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
                 IF OBJECT_ID(N'objetivo_saltado_dias', N'U') IS NULL
                 CREATE TABLE objetivo_saltado_dias (
                     id INT IDENTITY(1,1) PRIMARY KEY,
@@ -174,6 +188,16 @@ try:
                     created_at DATETIME NULL,
                     updated_at DATETIME NULL,
                     CONSTRAINT uq_weekly_conclusions_week_start UNIQUE (week_start)
+                )
+            """))
+            conn.execute(text("""
+                IF OBJECT_ID(N'duvan_conclusions', N'U') IS NULL
+                CREATE TABLE duvan_conclusions (
+                    id INT IDENTITY(1,1) PRIMARY KEY,
+                    conclusion_type NVARCHAR(50) NOT NULL DEFAULT 'vida',
+                    content NVARCHAR(MAX) NOT NULL,
+                    created_at DATETIME NULL,
+                    updated_at DATETIME NULL
                 )
             """))
             conn.commit()

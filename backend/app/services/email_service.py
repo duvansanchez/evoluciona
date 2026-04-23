@@ -406,6 +406,82 @@ def build_markdown_phrase_report(data: Dict[str, Any]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def build_markdown_report(data: Dict[str, Any]) -> str:
+    """Genera el informe de preguntas diarias en Markdown para descarga local."""
+    DAYS_ES = {"Mon": "Lun", "Tue": "Mar", "Wed": "Mie", "Thu": "Jue",
+               "Fri": "Vie", "Sat": "Sab", "Sun": "Dom"}
+
+    report_title = data.get("report_title", "Informe")
+    week_label = data.get("week_label", "")
+    week_start = data.get("week_start", "")
+    week_end = data.get("week_end", "")
+    days_completed = data.get("days_completed", 0)
+    total_responses = data.get("total_responses", 0)
+    completion_rate = data.get("completion_rate", 0)
+
+    lines = [
+        f"# {report_title} - Preguntas Diarias",
+        "",
+        f"## {week_label}",
+        "",
+        f"- Periodo: {week_start} a {week_end}",
+        f"- Dias completados: {days_completed}",
+        f"- Total de respuestas: {total_responses}",
+        f"- Tasa de completitud: {completion_rate}%",
+        "",
+        "## Registro diario",
+        "",
+    ]
+
+    day_records = data.get("day_records", [])
+    if day_records:
+        for day in day_records:
+            label = DAYS_ES.get(day.get("weekday", ""), day.get("weekday", ""))
+            answered = day.get("answered", 0)
+            skipped = day.get("skipped", 0)
+            completed = day.get("completed", False)
+            status = "Completo" if completed else ("Saltado" if skipped > 0 else "Sin responder")
+            lines.append(f"- {day.get('date')} ({label}): {status} — {answered} respuestas, {skipped} saltadas")
+    else:
+        lines.append("- Sin registros en este periodo.")
+
+    lines.extend(["", "## Preguntas y respuestas", ""])
+
+    questions = data.get("questions", [])
+    if questions:
+        for q in questions:
+            qtext = q.get("text", "Sin texto")
+            qtype = q.get("type", "")
+            total = q.get("total_responses", 0)
+            skip_count = q.get("skip_count", 0)
+            lines.append(f"### {qtext}")
+            lines.append(f"*Tipo: {qtype} | Respuestas: {total} | Saltadas: {skip_count}*")
+            lines.append("")
+
+            options = q.get("options", [])
+            if options:
+                lines.append("**Distribucion de respuestas:**")
+                for opt in options:
+                    count = opt.get("count", 0)
+                    pct = opt.get("pct", 0)
+                    label_opt = opt.get("label", opt.get("value", ""))
+                    lines.append(f"- {label_opt}: {count} ({pct}%)")
+                lines.append("")
+
+            text_answers = q.get("text_answers", [])
+            if text_answers:
+                lines.append("**Respuestas de texto:**")
+                for ans in text_answers:
+                    date_str = ans.get("date", "")
+                    value = ans.get("value", "")
+                    lines.append(f"- [{date_str}] {value}")
+                lines.append("")
+    else:
+        lines.append("- Sin preguntas registradas en este periodo.")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def build_html_rutina_report(data: Dict[str, Any]) -> str:
     """Genera el HTML del informe de rutinas para envio por Gmail o descarga."""
     top_routines_html = "".join(
@@ -502,6 +578,7 @@ def build_html_rutina_report(data: Dict[str, Any]) -> str:
                     {'Completado' if goal.get('status') == 'completed' else 'Saltado' if goal.get('status') == 'skipped' else 'No completado'}:
                   </span>
                   <span>{((goal.get('icon') or '') + ' ' + (goal.get('title') or '')).strip()}</span>
+                  {f"<div style='font-size:12px;color:#92400e;margin-top:2px;'>Motivo: {goal.get('skip_reason')}</div>" if goal.get('status') == 'skipped' and goal.get('skip_reason') else ''}
                 </div>
                 '''
                 for goal in day.get('goals', [])

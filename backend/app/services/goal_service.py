@@ -177,6 +177,15 @@ class GoalService:
         ]
 
     @staticmethod
+    def get_skipped_goal_entries(db: Session, fecha: str) -> List[GoalSkipDay]:
+        """Obtener entradas de objetivos saltados con motivo para una fecha."""
+        return (
+            db.query(GoalSkipDay)
+            .filter(GoalSkipDay.fecha == fecha)
+            .all()
+        )
+
+    @staticmethod
     def get_completed_goal_entries(db: Session, fecha: str) -> List[GoalCompletionDay]:
         """Obtener historial de completado diario para objetivos recurrentes."""
         return (
@@ -231,22 +240,30 @@ class GoalService:
         return True
 
     @staticmethod
-    def skip_goal_for_date(db: Session, goal_id: int, fecha: str) -> Optional[GoalSkipDay]:
+    def skip_goal_for_date(db: Session, goal_id: int, fecha: str, reason: Optional[str] = None) -> Optional[GoalSkipDay]:
         """Persistir que un objetivo recurrente fue saltado en una fecha."""
         goal = db.query(Goal).filter(Goal.id == goal_id).first()
         if not goal or not goal.recurrente:
             return None
+
+        cleaned_reason = reason.strip() if isinstance(reason, str) else None
+        if cleaned_reason == "":
+            cleaned_reason = None
 
         existing = db.query(GoalSkipDay).filter(
             GoalSkipDay.objetivo_id == goal_id,
             GoalSkipDay.fecha == fecha,
         ).first()
         if existing:
+            existing.motivo = cleaned_reason
+            db.commit()
+            db.refresh(existing)
             return existing
 
         skip_day = GoalSkipDay(
             objetivo_id=goal_id,
             fecha=fecha,
+            motivo=cleaned_reason,
             fecha_creacion=datetime.now(),
         )
         db.add(skip_day)

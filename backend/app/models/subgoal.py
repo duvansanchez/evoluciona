@@ -36,6 +36,7 @@ class SubGoalSkipDay(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     subobjetivo_id = Column(Integer, ForeignKey("subobjetivos.id", ondelete="CASCADE"), nullable=False)
     fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    motivo = Column(Text, nullable=True)
     fecha_creacion = Column(DateTime, nullable=True, default=datetime.utcnow)
 
     subgoal = relationship("SubGoal", back_populates="skip_days")

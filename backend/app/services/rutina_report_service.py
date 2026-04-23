@@ -439,6 +439,10 @@ def _build_routine_breakdown(
 
     completion_keys = {(row.objetivo_id, row.fecha) for row in completions}
     skip_keys = {(row.objetivo_id, row.fecha) for row in skips}
+    skip_reasons = {
+        (row.objetivo_id, row.fecha): row.motivo
+        for row in skips
+    }
 
     breakdown: list[dict[str, Any]] = []
 
@@ -477,6 +481,7 @@ def _build_routine_breakdown(
                         "title": goal.titulo,
                         "icon": goal.icono,
                         "status": status,
+                        "skip_reason": skip_reasons.get(key) if status == "skipped" else None,
                     }
                 )
 

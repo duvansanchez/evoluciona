@@ -395,6 +395,7 @@ class RutinaCreate(BaseModel):
     nombre: str
     parte_dia: str
     color: Optional[str] = None
+    categoria: Optional[str] = None
     descripcion: Optional[str] = None
     dias_semana: List[int] = []
     bloques: List[RutinaBloqueCreate] = []
@@ -404,6 +405,7 @@ class RutinaUpdate(BaseModel):
     nombre: Optional[str] = None
     parte_dia: Optional[str] = None
     color: Optional[str] = None
+    categoria: Optional[str] = None
     descripcion: Optional[str] = None
     dias_semana: Optional[List[int]] = None
     bloques: Optional[List[RutinaBloqueCreate]] = None
@@ -414,6 +416,7 @@ class RutinaResponse(BaseModel):
     nombre: str
     parte_dia: str
     color: Optional[str] = None
+    categoria: Optional[str] = None
     descripcion: Optional[str] = None
     dias_semana: List[int] = []
     activa: bool
@@ -520,6 +523,13 @@ class GoalsPaginatedResponse(BaseModel):
 class GoalSkipDayResponse(BaseModel):
     goal_id: int
     fecha: str
+    reason: Optional[str] = None
+
+
+class GoalSkipDayDetailResponse(BaseModel):
+    goal_id: int
+    fecha: str
+    reason: Optional[str] = None
 
 
 class GoalCompletionDayResponse(BaseModel):
@@ -556,6 +566,25 @@ class WeeklyConclusionResponse(BaseModel):
     week_start: str
     week_end: str
     period_label: str
+    content: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class DuvanConclusionCreate(BaseModel):
+    conclusion_type: str = Field(default="vida")
+    content: str = Field(..., min_length=1)
+
+
+class DuvanConclusionResponse(BaseModel):
+    id: int
+    conclusion_type: str
     content: str
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

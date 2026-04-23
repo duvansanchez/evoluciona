@@ -119,9 +119,15 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
               </span>
             )}
             {isSkipped && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+              <span
+                title={goal.skippedReason ? `Motivo: ${goal.skippedReason}` : undefined}
+                className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+              >
                 <SkipForward className="h-3 w-3" /> Saltado hoy
               </span>
+            )}
+            {isSkipped && goal.skippedReason && (
+              <span className="text-[10px] text-amber-700 dark:text-amber-300">Motivo: {goal.skippedReason}</span>
             )}
             {goal.dayPart && (
               <span className="text-[10px] text-muted-foreground">{dayPartLabels[goal.dayPart]}</span>
@@ -226,10 +232,16 @@ function SubGoalRow({
         {sub.title}
       </span>
       {sub.skipped && (
-        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+        <span
+          title={sub.skippedReason ? `Motivo: ${sub.skippedReason}` : undefined}
+          className="text-[10px] text-muted-foreground flex items-center gap-0.5"
+        >
           <SkipForward className="h-3 w-3" />
           Saltado hoy
         </span>
+      )}
+      {sub.skipped && sub.skippedReason && (
+        <span className="text-[10px] text-amber-700 dark:text-amber-300">{sub.skippedReason}</span>
       )}
       {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
         <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">

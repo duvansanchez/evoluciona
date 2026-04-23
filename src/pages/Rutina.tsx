@@ -113,6 +113,9 @@ export default function RutinaPage() {
   // Confirmar eliminar rutina
   const [deletingRutinaId, setDeletingRutinaId] = useState<number | null>(null);
 
+  // Filtro de categoría en biblioteca
+  const [categoriaFilter, setCategoriaFilter] = useState<string>('todas');
+
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   const loadSkippedGoalsForDates = useCallback(async (dates: string[]) => {
@@ -220,6 +223,13 @@ export default function RutinaPage() {
   const isGoalSkippedOnDate = (goalId: number, fecha: string) =>
     skippedGoalsByDate[fecha]?.has(goalId.toString()) ?? false;
 
+  const getAssignmentSkipStats = (asignacion: RutinaAsignacion, fecha: string) => {
+    const totalGoals = (asignacion.rutina.objetivos ?? []).length;
+    const skippedCount = (asignacion.rutina.objetivos ?? []).filter(g => isGoalSkippedOnDate(g.id, fecha)).length;
+    const isNeutralBySkips = totalGoals > 0 && skippedCount === totalGoals;
+    return { totalGoals, skippedCount, isNeutralBySkips };
+  };
+
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   const assignRutinaToSlot = async (rutinaId: number, fecha: string, parte_dia: string) => {
@@ -279,7 +289,7 @@ export default function RutinaPage() {
     }
   };
 
-  const renderAssignmentCard = (asignacion: RutinaAsignacion, iso: string, skippedCount: number) => (
+  const renderAssignmentCard = (asignacion: RutinaAsignacion, iso: string, skippedCount: number, isNeutralBySkips: boolean) => (
     <div className="h-full flex flex-col gap-1">
       <div
         className={`rounded-lg border border-border bg-background p-2 flex-1 cursor-pointer hover:shadow-sm transition-shadow ${
@@ -301,6 +311,11 @@ export default function RutinaPage() {
             {skippedCount > 0 && ` · ${skippedCount} saltado${skippedCount !== 1 ? 's' : ''}`}
           </p>
         )}
+        {isNeutralBySkips && (
+          <p className="text-[10px] text-amber-600 mt-1 pl-4 font-medium">
+            Rutina nula hoy: todos los objetivos se saltaron
+          </p>
+        )}
         {asignacion.es_automatica && (
           <p className="text-[9px] text-primary mt-1 pl-4">Automatica</p>
         )}
@@ -308,9 +323,12 @@ export default function RutinaPage() {
 
       <div className="flex items-center gap-1">
         <button
+          disabled={isNeutralBySkips}
           onClick={() => handleToggleCompleta(asignacion)}
-          title={asignacion.completada ? 'Marcar pendiente' : 'Marcar completada'}
-          className="flex-1 flex items-center justify-center p-1 rounded hover:bg-muted transition-colors"
+          title={isNeutralBySkips ? 'No aplica: todos los objetivos de la rutina fueron saltados' : (asignacion.completada ? 'Marcar pendiente' : 'Marcar completada')}
+          className={`flex-1 flex items-center justify-center p-1 rounded transition-colors ${
+            isNeutralBySkips ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted'
+          }`}
         >
           {asignacion.completada
             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
@@ -388,7 +406,7 @@ export default function RutinaPage() {
     ]);
   };
 
-  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; color?: string; descripcion?: string; dias_semana: number[]; objetivoIds: number[] }) => {
+  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; color?: string; categoria?: string; descripcion?: string; dias_semana: number[]; objetivoIds: number[] }) => {
     const { objetivoIds, ...rutinaData } = data;
     if (editingRutina) {
       const updated = await rutinasAPI.updateRutina(editingRutina.id, rutinaData);
@@ -524,9 +542,9 @@ export default function RutinaPage() {
               const iso = toISODate(date);
               const asignacion = getAsignacion(iso, parte);
               const today = isToday(iso);
-              const skippedCount = asignacion
-                ? (asignacion.rutina.objetivos ?? []).filter(g => isGoalSkippedOnDate(g.id, iso)).length
-                : 0;
+              const stats = asignacion
+                ? getAssignmentSkipStats(asignacion, iso)
+                : { skippedCount: 0, isNeutralBySkips: false };
 
               return (
                 <Droppable key={`${iso}-${parte}`} droppableId={`cell:${iso}:${parte}`}>
@@ -547,7 +565,7 @@ export default function RutinaPage() {
                             className={`${dragSnapshot.isDragging ? 'rotate-[0.5deg] shadow-2xl' : ''}`}
                             style={dragProvided.draggableProps.style}
                           >
-                            {renderAssignmentCard(asignacion, iso, skippedCount)}
+                            {renderAssignmentCard(asignacion, iso, stats.skippedCount, stats.isNeutralBySkips)}
                           </div>
                         );
                         return dragSnapshot.isDragging ? createPortal(card, document.body) : card;
@@ -663,20 +681,27 @@ export default function RutinaPage() {
                             </p>
                             <div className="space-y-0.5">
                               {dayAsigs.map(a => (
+                                (() => {
+                                  const stats = getAssignmentSkipStats(a, iso);
+                                  return (
                                 <div
                                   key={a.id}
-                                  title={`${a.rutina.nombre}`}
+                                  title={`${a.rutina.nombre}${stats.isNeutralBySkips ? ' · Rutina nula por objetivos saltados' : ''}`}
                                   className={`flex items-center gap-1 rounded px-1 py-0.5 ${
-                                    a.completada ? 'bg-green-500/15' : 'bg-red-500/10'
+                                    stats.isNeutralBySkips
+                                      ? 'bg-amber-500/15'
+                                      : a.completada ? 'bg-green-500/15' : 'bg-red-500/10'
                                   }`}
                                 >
                                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${COLOR_BG[a.rutina.color || 'blue']}`} />
                                   <p className="text-[9px] truncate text-foreground leading-tight flex-1">{a.rutina.nombre}</p>
-                                  {(a.rutina.objetivos ?? []).some(g => isGoalSkippedOnDate(g.id, iso)) && (
+                                  {stats.skippedCount > 0 && (
                                     <SkipForward className="h-2.5 w-2.5 text-amber-500 flex-shrink-0" />
                                   )}
-                                  {a.completada && <CheckCircle2 className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />}
+                                  {!stats.isNeutralBySkips && a.completada && <CheckCircle2 className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />}
                                 </div>
+                                  );
+                                })()
                               ))}
                             </div>
                           </div>
@@ -693,11 +718,54 @@ export default function RutinaPage() {
 
       {/* Biblioteca de rutinas */}
       <section>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <BookOpen className="h-4 w-4 text-muted-foreground" />
           <h2 className="text-base font-semibold text-foreground">Mis Rutinas</h2>
           <span className="text-xs text-muted-foreground">({rutinas.length})</span>
         </div>
+
+        {/* Filtros de categoría */}
+        {rutinas.length > 0 && (() => {
+          const cats = Array.from(new Set(rutinas.map(r => r.categoria).filter(Boolean) as string[])).sort();
+          if (cats.length === 0) return null;
+          return (
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                onClick={() => setCategoriaFilter('todas')}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  categoriaFilter === 'todas'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Todas
+              </button>
+              <button
+                onClick={() => setCategoriaFilter('sin_categoria')}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  categoriaFilter === 'sin_categoria'
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                Sin categoría
+              </button>
+              {cats.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoriaFilter(cat)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    categoriaFilter === cat
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {rutinas.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -709,7 +777,11 @@ export default function RutinaPage() {
           <Droppable droppableId="library" direction="horizontal" isDropDisabled>
             {(provided) => (
           <div ref={provided.innerRef} {...provided.droppableProps} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-             {rutinas.map(rutina => {
+             {rutinas.filter(rutina =>
+               categoriaFilter === 'todas' ? true :
+               categoriaFilter === 'sin_categoria' ? !rutina.categoria :
+               rutina.categoria === categoriaFilter
+             ).map(rutina => {
                const parte = PARTES.find(p => p.value === rutina.parte_dia);
                const PartIcon = parte?.icon ?? Sun;
                const weeklyLabel = (rutina.dias_semana ?? []).length > 0
@@ -731,7 +803,14 @@ export default function RutinaPage() {
                   <div className="flex items-start gap-3">
                     <div className={`w-3 h-full min-h-[40px] rounded-full flex-shrink-0 ${COLOR_BG[rutina.color || 'blue']}`} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground leading-tight">{rutina.nombre}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground leading-tight">{rutina.nombre}</p>
+                        {rutina.categoria && (
+                          <span className="flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {rutina.categoria}
+                          </span>
+                        )}
+                      </div>
                       <div className={`flex items-center gap-1 mt-1 ${parte?.colorClass}`}>
                         <PartIcon className="h-3 w-3" />
                         <span className="text-xs font-medium">{parte?.label}</span>

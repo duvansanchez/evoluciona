@@ -38,7 +38,16 @@ class SubGoalService:
         return [row[0] for row in rows]
 
     @staticmethod
-    def skip_subgoal_for_date(db: Session, subgoal_id: int, fecha: str) -> Optional[SubGoalSkipDay]:
+    def get_skipped_subgoal_entries(db: Session, fecha: str) -> List[SubGoalSkipDay]:
+        """Obtener entradas de subobjetivos saltados con motivo para una fecha."""
+        return (
+            db.query(SubGoalSkipDay)
+            .filter(SubGoalSkipDay.fecha == fecha)
+            .all()
+        )
+
+    @staticmethod
+    def skip_subgoal_for_date(db: Session, subgoal_id: int, fecha: str, reason: Optional[str] = None) -> Optional[SubGoalSkipDay]:
         """Marcar un subobjetivo como saltado en una fecha si su objetivo padre es recurrente."""
         subgoal = SubGoalService.get_subgoal(db, subgoal_id)
         if not subgoal:
@@ -48,14 +57,21 @@ class SubGoalService:
         if not parent_goal or not parent_goal.recurrente:
             return None
 
+        cleaned_reason = reason.strip() if isinstance(reason, str) else None
+        if cleaned_reason == "":
+            cleaned_reason = None
+
         existing = db.query(SubGoalSkipDay).filter(
             SubGoalSkipDay.subobjetivo_id == subgoal_id,
             SubGoalSkipDay.fecha == fecha
         ).first()
         if existing:
+            existing.motivo = cleaned_reason
+            db.commit()
+            db.refresh(existing)
             return existing
 
-        skipped = SubGoalSkipDay(subobjetivo_id=subgoal_id, fecha=fecha)
+        skipped = SubGoalSkipDay(subobjetivo_id=subgoal_id, fecha=fecha, motivo=cleaned_reason)
         db.add(skipped)
         db.commit()
         db.refresh(skipped)

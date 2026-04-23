@@ -3,8 +3,18 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const FINANCE_HUB_API_URL = import.meta.env.VITE_FINANCE_HUB_API_URL || 'http://localhost:3005/api';
-const MINDFUL_STUDY_API_URL = import.meta.env.VITE_MINDFUL_STUDY_API_URL || 'http://localhost:3002/api';
+
+function deriveServiceApiUrl(port: number, fallback: string): string {
+  try {
+    const apiUrl = new URL(API_BASE_URL);
+    return `${apiUrl.protocol}//${apiUrl.hostname}:${port}/api`;
+  } catch {
+    return fallback;
+  }
+}
+
+const FINANCE_HUB_API_URL = import.meta.env.VITE_FINANCE_HUB_API_URL || deriveServiceApiUrl(3005, 'http://localhost:3005/api');
+const MINDFUL_STUDY_API_URL = import.meta.env.VITE_MINDFUL_STUDY_API_URL || deriveServiceApiUrl(3002, 'http://localhost:3002/api');
 
 // Tipos para respuestas paginadas
 interface PaginatedResponse<T> {
@@ -26,30 +36,58 @@ export const goalsAPI = {
   },
 
   getSkippedGoals: async (date: string) => {
-    const response = await fetch(`${API_BASE_URL}/goals/skips?fecha=${date}`);
-    if (!response.ok) throw new Error('Error fetching skipped goals');
+    const response = await fetch(`${API_BASE_URL}/goals/skips?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped goals (${response.status})`);
+    }
     return response.json() as Promise<number[]>;
   },
 
+  getSkippedGoalsDetails: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/skips/details?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped goal details (${response.status})`);
+    }
+    return response.json() as Promise<Array<{ goal_id: number; fecha: string; reason?: string | null }>>;
+  },
+
   getCompletedGoals: async (date: string) => {
-    const response = await fetch(`${API_BASE_URL}/goals/completions?fecha=${date}`);
+    const response = await fetch(`${API_BASE_URL}/goals/completions?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
     if (!response.ok) throw new Error('Error fetching completed goals');
     return response.json() as Promise<Array<{ goal_id: number; fecha: string; completed_at?: string }>>;
   },
 
-  skipGoalForDate: async (goalId: number | string, date: string) => {
+  skipGoalForDate: async (goalId: number | string, date: string, reason?: string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
     });
-    if (!response.ok) throw new Error('Error skipping goal for date');
-    return response.json();
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error skipping goal for date (${response.status})`);
+    }
+    return response.json() as Promise<{ goal_id: number; fecha: string; reason?: string | null }>;
   },
 
   unskipGoalForDate: async (goalId: number | string, date: string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error('Error removing skipped goal for date');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error removing skipped goal for date (${response.status})`);
+    }
     return response.json();
   },
 
@@ -121,9 +159,24 @@ export const goalsAPI = {
     return response.json();
   },
   getSkippedSubGoals: async (date: string) => {
-    const response = await fetch(`${API_BASE_URL}/subgoals/skips?fecha=${date}`);
-    if (!response.ok) throw new Error('Error fetching skipped subgoals');
+    const response = await fetch(`${API_BASE_URL}/subgoals/skips?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped subgoals (${response.status})`);
+    }
     return response.json() as Promise<number[]>;
+  },
+  getSkippedSubGoalsDetails: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/skips/details?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped subgoal details (${response.status})`);
+    }
+    return response.json() as Promise<Array<{ subgoal_id: number; fecha: string; reason?: string | null }>>;
   },
   updateSubGoal: async (subGoalId: number | string, updates: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}`, {
@@ -164,18 +217,28 @@ export const goalsAPI = {
     if (!response.ok) throw new Error('Error deleting subgoal');
     return response.json();
   },
-  skipSubGoalForDate: async (subGoalId: number | string, date: string) => {
+  skipSubGoalForDate: async (subGoalId: number | string, date: string, reason?: string) => {
     const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
     });
-    if (!response.ok) throw new Error('Error skipping subgoal for date');
-    return response.json() as Promise<{ subgoal_id: number; fecha: string }>;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error skipping subgoal for date (${response.status})`);
+    }
+    return response.json() as Promise<{ subgoal_id: number; fecha: string; reason?: string | null }>;
   },
   unskipSubGoalForDate: async (subGoalId: number | string, date: string) => {
     const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error('Error removing skipped subgoal for date');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error removing skipped subgoal for date (${response.status})`);
+    }
     return response.json();
   },
 };
@@ -689,6 +752,35 @@ export const reportsAPI = {
     }
     return response.json() as Promise<{ message: string; week_start: string; week_end: string }>;
   },
+  getDuvanConclusions: async (limit = 20) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions?limit=${limit}`);
+    if (!response.ok) throw new Error('Error fetching duvan conclusions');
+    return response.json() as Promise<DuvanConclusion[]>;
+  },
+  saveDuvanConclusion: async (conclusionType: 'emocional' | 'trabajo' | 'vida' | 'personas', content: string) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ conclusion_type: conclusionType, content }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error saving duvan conclusion');
+    }
+    return response.json() as Promise<DuvanConclusion>;
+  },
+  deleteDuvanConclusion: async (id: number) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error deleting duvan conclusion');
+    }
+    return response.json() as Promise<{ message: string; id: number }>;
+  },
 };
 
 export interface WeeklyConclusion {
@@ -696,6 +788,14 @@ export interface WeeklyConclusion {
   week_start: string;
   week_end: string;
   period_label: string;
+  content: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DuvanConclusion {
+  id: number;
+  conclusion_type: 'emocional' | 'trabajo' | 'vida' | 'personas';
   content: string;
   created_at?: string | null;
   updated_at?: string | null;
@@ -848,6 +948,7 @@ export interface Rutina {
   nombre: string;
   parte_dia: 'morning' | 'afternoon' | 'evening';
   color?: string;
+  categoria?: string;
   descripcion?: string;
   dias_semana: number[];
   activa: boolean;
@@ -922,6 +1023,7 @@ export interface RutinaReportRoutineBreakdownGoalItem {
   title: string;
   icon?: string | null;
   status: 'completed' | 'skipped' | 'pending';
+  skip_reason?: string | null;
 }
 
 export interface RutinaReportRoutineBreakdownDayItem {
@@ -1037,6 +1139,7 @@ export const rutinasAPI = {
     nombre: string;
     parte_dia: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
     dias_semana: number[];
     bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
@@ -1054,6 +1157,7 @@ export const rutinasAPI = {
     nombre?: string;
     parte_dia?: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
     dias_semana?: number[];
     bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];

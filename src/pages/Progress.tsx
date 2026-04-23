@@ -24,9 +24,10 @@ import {
   Trash2,
   Volume2,
   Square,
+  NotebookPen,
 } from 'lucide-react';
 import { phrasesAPI, remindersAPI, reportsAPI, rutinasAPI } from '@/services/api';
-import type { PhraseReportData, ReminderConfig, RutinaReportData, WeeklyConclusion } from '@/services/api';
+import type { DuvanConclusion, PhraseReportData, ReminderConfig, RutinaReportData, WeeklyConclusion } from '@/services/api';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { renderMarkdownPreview } from '@/utils/markdownPreview';
@@ -43,6 +44,22 @@ type ReportHistoryItem = {
   week_label: string;
   source: string;
 };
+
+type ConclusionType = 'emocional' | 'trabajo' | 'vida' | 'personas';
+
+const CONCLUSION_TYPE_OPTIONS: Array<{ value: ConclusionType; label: string }> = [
+  { value: 'emocional', label: 'Emocional' },
+  { value: 'trabajo', label: 'Trabajo' },
+  { value: 'vida', label: 'Vida' },
+  { value: 'personas', label: 'Personas' },
+];
+
+function getConclusionTypeLabel(type: string | null | undefined): string {
+  if (type === 'emocional') return 'Emocional';
+  if (type === 'trabajo') return 'Trabajo';
+  if (type === 'personas') return 'Personas';
+  return 'Vida';
+}
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -317,6 +334,14 @@ export default function Progress() {
   const [weeklyConclusionMessage, setWeeklyConclusionMessage] = useState<string | null>(null);
   const [weeklyConclusionError, setWeeklyConclusionError] = useState<string | null>(null);
   const [selectedConclusionModal, setSelectedConclusionModal] = useState<WeeklyConclusion | null>(null);
+  const [duvanConclusionsExpanded, setDuvanConclusionsExpanded] = useState(false);
+  const [duvanConclusionType, setDuvanConclusionType] = useState<ConclusionType>('vida');
+  const [duvanConclusionText, setDuvanConclusionText] = useState('');
+  const [duvanConclusions, setDuvanConclusions] = useState<DuvanConclusion[]>([]);
+  const [duvanConclusionsLoading, setDuvanConclusionsLoading] = useState(false);
+  const [duvanConclusionSaving, setDuvanConclusionSaving] = useState(false);
+  const [duvanConclusionMessage, setDuvanConclusionMessage] = useState<string | null>(null);
+  const [duvanConclusionError, setDuvanConclusionError] = useState<string | null>(null);
   const [conclusionSpeaking, setConclusionSpeaking] = useState(false);
   const [conclusionAudioLoading, setConclusionAudioLoading] = useState(false);
   const [conclusionAudioProvider, setConclusionAudioProvider] = useState<'browser' | 'elevenlabs' | 'edge'>('browser');
@@ -392,6 +417,20 @@ export default function Progress() {
     }
   };
 
+  const loadDuvanConclusions = async () => {
+    setDuvanConclusionsLoading(true);
+    setDuvanConclusionError(null);
+    try {
+      const items = await reportsAPI.getDuvanConclusions(25);
+      setDuvanConclusions(items);
+    } catch (error: any) {
+      console.error('Error loading duvan conclusions:', error);
+      setDuvanConclusionError(error?.message || 'No se pudieron cargar las conclusiones de duvan.');
+    } finally {
+      setDuvanConclusionsLoading(false);
+    }
+  };
+
   const loadReportHistory = async () => {
     try {
       const history = await reportsAPI.getHistory(8);
@@ -455,6 +494,12 @@ export default function Progress() {
       void loadWeeklyConclusionsHistory();
     }
   }, [conclusionReferenceDate, conclusionsExpanded]);
+
+  useEffect(() => {
+    if (duvanConclusionsExpanded) {
+      void loadDuvanConclusions();
+    }
+  }, [duvanConclusionsExpanded]);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -763,6 +808,49 @@ export default function Progress() {
       setWeeklyConclusionError(error?.message || 'No se pudo eliminar la conclusión semanal.');
     } finally {
       setWeeklyConclusionSaving(false);
+    }
+  };
+
+  const handleSaveDuvanConclusion = async () => {
+    const content = duvanConclusionText.trim();
+    if (!content) {
+      setDuvanConclusionError('Escribe una conclusión antes de guardar.');
+      setDuvanConclusionMessage(null);
+      return;
+    }
+
+    setDuvanConclusionSaving(true);
+    setDuvanConclusionError(null);
+    setDuvanConclusionMessage(null);
+    try {
+      await reportsAPI.saveDuvanConclusion(duvanConclusionType, content);
+      setDuvanConclusionText('');
+      setDuvanConclusionMessage('Conclusión de duvan guardada correctamente.');
+      await loadDuvanConclusions();
+    } catch (error: any) {
+      console.error('Error saving duvan conclusion:', error);
+      setDuvanConclusionError(error?.message || 'No se pudo guardar la conclusión de duvan.');
+    } finally {
+      setDuvanConclusionSaving(false);
+    }
+  };
+
+  const handleDeleteDuvanConclusion = async (id: number) => {
+    const confirmed = window.confirm('¿Seguro que quieres eliminar esta conclusión de duvan?');
+    if (!confirmed) return;
+
+    setDuvanConclusionSaving(true);
+    setDuvanConclusionError(null);
+    setDuvanConclusionMessage(null);
+    try {
+      await reportsAPI.deleteDuvanConclusion(id);
+      setDuvanConclusionMessage('Conclusión de duvan eliminada correctamente.');
+      await loadDuvanConclusions();
+    } catch (error: any) {
+      console.error('Error deleting duvan conclusion:', error);
+      setDuvanConclusionError(error?.message || 'No se pudo eliminar la conclusión de duvan.');
+    } finally {
+      setDuvanConclusionSaving(false);
     }
   };
 
@@ -1290,7 +1378,12 @@ export default function Progress() {
                                         <div key={`${day.date}-${goal.id}`} className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2">
                                           <div className="flex items-center gap-2">
                                             {statusStyles.icon}
-                                            <p className="text-sm text-foreground">{[goal.icon, goal.title].filter(Boolean).join(' ')}</p>
+                                            <div>
+                                              <p className="text-sm text-foreground">{[goal.icon, goal.title].filter(Boolean).join(' ')}</p>
+                                              {goal.status === 'skipped' && goal.skip_reason && (
+                                                <p className="text-[11px] text-amber-700 dark:text-amber-300">Motivo: {goal.skip_reason}</p>
+                                              )}
+                                            </div>
                                           </div>
                                           <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${statusStyles.badge}`}>
                                             {statusStyles.label}
@@ -1338,12 +1431,17 @@ export default function Progress() {
             )}
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="rounded-xl border border-blue-500/25 bg-blue-500/5 p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" />
+                <FileText className="h-5 w-5 text-blue-600" />
                 <div>
-                  <h3 className="text-base font-semibold text-foreground">Conclusiones semana a semana</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-foreground">Conclusiones semana a semana</h3>
+                    <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                      Informe
+                    </span>
+                  </div>
                   <p className="text-xs text-muted-foreground">Guarda las conclusiones de mejora que te devuelve la IA cada semana.</p>
                 </div>
               </div>
@@ -1492,6 +1590,105 @@ export default function Progress() {
                           </div>
                           <span className="whitespace-nowrap text-[11px] text-muted-foreground">{item.week_start}</span>
                         </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <NotebookPen className="h-5 w-5 text-emerald-600" />
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-foreground">Conclusiones de duvan</h3>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                      Personal
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Guarda tus conclusiones personales clasificadas por tipo.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDuvanConclusionsExpanded(prev => !prev)}
+                className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                {duvanConclusionsExpanded ? 'Ocultar' : 'Abrir'}
+                {duvanConclusionsExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+            </div>
+
+            {!duvanConclusionsExpanded ? (
+              <p className="mt-5 text-sm text-muted-foreground">
+                Abre este bloque para escribir conclusiones con tipo: emocional, trabajo, vida o personas.
+              </p>
+            ) : (
+              <div className="mt-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <select
+                    value={duvanConclusionType}
+                    onChange={(event) => setDuvanConclusionType(event.target.value as ConclusionType)}
+                    className="rounded-lg border border-input bg-background px-3 py-2 text-sm font-medium text-foreground"
+                  >
+                    {CONCLUSION_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleSaveDuvanConclusion}
+                    disabled={duvanConclusionSaving}
+                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    <Save className="h-4 w-4" />
+                    {duvanConclusionSaving ? 'Guardando...' : 'Guardar conclusión'}
+                  </button>
+                </div>
+
+                <textarea
+                  value={duvanConclusionText}
+                  onChange={(event) => setDuvanConclusionText(event.target.value)}
+                  placeholder="Escribe tu conclusión aquí..."
+                  rows={7}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+
+                {duvanConclusionError && (
+                  <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">{duvanConclusionError}</p>
+                )}
+                {duvanConclusionMessage && (
+                  <p className="rounded-lg bg-green-500/10 px-3 py-2 text-xs text-green-600">{duvanConclusionMessage}</p>
+                )}
+
+                <div className="rounded-lg border border-border bg-background/60 p-4">
+                  <p className="text-sm font-semibold text-foreground">Conclusiones recientes</p>
+                  {duvanConclusionsLoading ? (
+                    <p className="mt-2 text-sm text-muted-foreground">Cargando conclusiones...</p>
+                  ) : duvanConclusions.length === 0 ? (
+                    <p className="mt-2 text-sm text-muted-foreground">Todavía no has guardado conclusiones de duvan.</p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {duvanConclusions.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background px-3 py-3"
+                        >
+                          <div>
+                            <p className="text-xs font-semibold text-primary">{getConclusionTypeLabel(item.conclusion_type)}</p>
+                            <p className="mt-1 text-sm text-foreground whitespace-pre-wrap">{item.content}</p>
+                            <p className="mt-2 text-[11px] text-muted-foreground">{item.created_at ? new Date(item.created_at).toLocaleString('es-CO') : '-'}</p>
+                          </div>
+                          <button
+                            onClick={() => void handleDeleteDuvanConclusion(item.id)}
+                            disabled={duvanConclusionSaving}
+                            className="inline-flex items-center gap-1 rounded-lg border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Eliminar
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}

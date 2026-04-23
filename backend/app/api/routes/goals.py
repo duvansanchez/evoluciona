@@ -2,18 +2,23 @@
 Endpoints para objetivos (Goals) y subobjetivos (SubGoals).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.schemas import (
     GoalCreate, GoalUpdate, GoalResponse, GoalFocusUpdate,
-    GoalsPaginatedResponse, GoalSkipDayResponse, GoalCompletionDayResponse
+    GoalsPaginatedResponse, GoalSkipDayResponse, GoalSkipDayDetailResponse, GoalCompletionDayResponse
 )
 from app.services.goal_service import GoalService
 from typing import List
 import math
 
 router = APIRouter(prefix="/api/goals", tags=["goals"])
+
+
+class SkipReasonPayload(BaseModel):
+    reason: str | None = None
 
 
 # ==================== GOALS ====================
@@ -62,6 +67,19 @@ def list_skipped_goals(
 ):
     """Obtener IDs de objetivos saltados para una fecha."""
     return GoalService.get_skipped_goal_ids(db, fecha)
+
+
+@router.get("/skips/details", response_model=List[GoalSkipDayDetailResponse])
+def list_skipped_goals_details(
+    fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+):
+    """Obtener detalle de objetivos saltados para una fecha."""
+    rows = GoalService.get_skipped_goal_entries(db, fecha)
+    return [
+        GoalSkipDayDetailResponse(goal_id=row.objetivo_id, fecha=row.fecha, reason=row.motivo)
+        for row in rows
+    ]
 
 
 @router.get("/completions", response_model=List[GoalCompletionDayResponse])
@@ -118,13 +136,14 @@ def update_goal_focus(goal_id: int, focus: GoalFocusUpdate, db: Session = Depend
 def skip_goal_for_date(
     goal_id: int,
     fecha: str = Query(..., description="Fecha YYYY-MM-DD"),
+    payload: SkipReasonPayload | None = Body(default=None),
     db: Session = Depends(get_db),
 ):
     """Marcar un objetivo recurrente como saltado para una fecha."""
-    skipped = GoalService.skip_goal_for_date(db, goal_id, fecha)
+    skipped = GoalService.skip_goal_for_date(db, goal_id, fecha, payload.reason if payload else None)
     if not skipped:
         raise HTTPException(status_code=404, detail="Recurring goal not found")
-    return GoalSkipDayResponse(goal_id=skipped.objetivo_id, fecha=skipped.fecha)
+    return GoalSkipDayResponse(goal_id=skipped.objetivo_id, fecha=skipped.fecha, reason=skipped.motivo)
 
 
 @router.post("/{goal_id}/complete", response_model=GoalCompletionDayResponse, status_code=201)
