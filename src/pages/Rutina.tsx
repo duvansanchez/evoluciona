@@ -289,6 +289,18 @@ export default function RutinaPage() {
   const isSubGoalSkippedOnDate = (subGoalId: number, fecha: string) =>
     skippedSubGoalsByDate[fecha]?.has(subGoalId.toString()) ?? false;
 
+  const isGoalSkippedByAllSubGoalsOnDate = (goalId: number, fecha: string) => {
+    const subGoals = subGoalsByGoalId[goalId] ?? [];
+    if (subGoals.length === 0) return false;
+    return subGoals.every(sub => isSubGoalSkippedOnDate(sub.id, fecha));
+  };
+
+  const getGoalStatusOnDate = (goalId: number, fecha: string): 'completed' | 'skipped' | 'pending' => {
+    if (isGoalCompletedOnDate(goalId, fecha)) return 'completed';
+    if (isGoalSkippedOnDate(goalId, fecha) || isGoalSkippedByAllSubGoalsOnDate(goalId, fecha)) return 'skipped';
+    return 'pending';
+  };
+
   const getGoalsForAssignment = (asignacion: RutinaAsignacion) => {
     const allGoals = asignacion.rutina.objetivos ?? [];
     if (!asignacion.objetivo_ids || asignacion.objetivo_ids.length === 0) {
@@ -421,10 +433,23 @@ export default function RutinaPage() {
     });
   }, [expandedId, semana, subGoalsByGoalId, fetchSubGoalsForGoal]);
 
+  useEffect(() => {
+    const goalIds = Array.from(new Set(
+      semana
+        .flatMap(dia => dia.asignaciones)
+        .flatMap(asig => getGoalsForAssignment(asig).map(goal => goal.id))
+    ));
+
+    goalIds.forEach((goalId) => {
+      if (subGoalsByGoalId[goalId] !== undefined) return;
+      void fetchSubGoalsForGoal(goalId);
+    });
+  }, [semana, subGoalsByGoalId, fetchSubGoalsForGoal]);
+
   const getAssignmentSkipStats = (asignacion: RutinaAsignacion, fecha: string) => {
     const goals = getGoalsForAssignment(asignacion);
     const totalGoals = goals.length;
-    const skippedCount = goals.filter(g => isGoalSkippedOnDate(g.id, fecha)).length;
+    const skippedCount = goals.filter(g => getGoalStatusOnDate(g.id, fecha) === 'skipped').length;
     const isNeutralBySkips = totalGoals > 0 && skippedCount === totalGoals;
     return { totalGoals, skippedCount, isNeutralBySkips };
   };
@@ -562,8 +587,7 @@ export default function RutinaPage() {
       {expandedId === asignacion.id && getGoalsForAssignment(asignacion).length > 0 && (
         <div className="rounded-lg bg-muted/50 p-2 space-y-1 animate-fade-in">
           {getGoalsForAssignment(asignacion).map(g => {
-            const goalSkipped = isGoalSkippedOnDate(g.id, iso);
-            const goalCompleted = isGoalCompletedOnDate(g.id, iso);
+            const goalStatus = getGoalStatusOnDate(g.id, iso);
             const goalSubGoals = subGoalsByGoalId[g.id] ?? [];
 
             return (
@@ -572,19 +596,19 @@ export default function RutinaPage() {
                   <span className="text-[10px] flex-shrink-0">{g.icono || '🎯'}</span>
                   <p className="text-[10px] text-foreground truncate flex-1">{g.titulo}</p>
 
-                  {goalCompleted && (
+                  {goalStatus === 'completed' && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[9px] font-medium text-green-600">
                       <CheckCircle2 className="h-2.5 w-2.5" />
                       Completado
                     </span>
                   )}
-                  {!goalCompleted && goalSkipped && (
+                  {goalStatus === 'skipped' && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600">
                       <SkipForward className="h-2.5 w-2.5" />
                       Saltado
                     </span>
                   )}
-                  {!goalCompleted && !goalSkipped && (
+                  {goalStatus === 'pending' && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[9px] font-medium text-red-600">
                       <Circle className="h-2.5 w-2.5" />
                       Pendiente

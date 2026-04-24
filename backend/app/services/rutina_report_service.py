@@ -11,6 +11,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 
 from app.models.models import Goal, GoalCompletionDay, GoalSkipDay, Rutina, RutinaAsignacion, rutina_objetivos
+from app.models.subgoal import SubGoal, SubGoalSkipDay
 from app.services.stats_service import get_month_range, get_week_range
 
 
@@ -437,8 +438,31 @@ def _build_routine_breakdown(
         .all()
     ) if routine_goal_ids else []
 
+    goal_subgoal_rows = (
+        db.query(SubGoal.id, SubGoal.objetivo_id)
+        .filter(SubGoal.objetivo_id.in_(routine_goal_ids) if routine_goal_ids else False)
+        .all()
+    ) if routine_goal_ids else []
+
+    goal_to_subgoal_ids: dict[int, list[int]] = defaultdict(list)
+    all_subgoal_ids: set[int] = set()
+    for subgoal_id, goal_id in goal_subgoal_rows:
+        goal_to_subgoal_ids[goal_id].append(subgoal_id)
+        all_subgoal_ids.add(subgoal_id)
+
+    subgoal_skips = (
+        db.query(SubGoalSkipDay)
+        .filter(
+            SubGoalSkipDay.subobjetivo_id.in_(all_subgoal_ids) if all_subgoal_ids else False,
+            SubGoalSkipDay.fecha >= period_start,
+            SubGoalSkipDay.fecha <= period_end,
+        )
+        .all()
+    ) if all_subgoal_ids else []
+
     completion_keys = {(row.objetivo_id, row.fecha) for row in completions}
     skip_keys = {(row.objetivo_id, row.fecha) for row in skips}
+    subgoal_skip_keys = {(row.subobjetivo_id, row.fecha) for row in subgoal_skips}
     skip_reasons = {
         (row.objetivo_id, row.fecha): row.motivo
         for row in skips
@@ -458,12 +482,20 @@ def _build_routine_breakdown(
         progress_day_count = 0
 
         for assignment in sorted(items, key=lambda item: item.fecha, reverse=True):
+            assignment_goal_ids = set(assignment.objetivo_ids or [])
+            assignment_goals = (
+                [goal for goal in routine_goals if goal.id in assignment_goal_ids]
+                if assignment_goal_ids
+                else routine_goals
+            )
+            assignment_goal_count = len(assignment_goals)
+
             goal_statuses: list[dict[str, Any]] = []
             completed_count = 0
             skipped_count = 0
             pending_count = 0
 
-            for goal in routine_goals:
+            for goal in assignment_goals:
                 key = (goal.id, assignment.fecha)
                 if key in completion_keys:
                     status = "completed"
@@ -472,8 +504,18 @@ def _build_routine_breakdown(
                     status = "skipped"
                     skipped_count += 1
                 else:
-                    status = "pending"
-                    pending_count += 1
+                    subgoal_ids = goal_to_subgoal_ids.get(goal.id, [])
+                    all_subgoals_skipped = (
+                        len(subgoal_ids) > 0
+                        and all((subgoal_id, assignment.fecha) in subgoal_skip_keys for subgoal_id in subgoal_ids)
+                    )
+
+                    if all_subgoals_skipped:
+                        status = "skipped"
+                        skipped_count += 1
+                    else:
+                        status = "pending"
+                        pending_count += 1
 
                 goal_statuses.append(
                     {
@@ -481,7 +523,13 @@ def _build_routine_breakdown(
                         "title": goal.titulo,
                         "icon": goal.icono,
                         "status": status,
-                        "skip_reason": skip_reasons.get(key) if status == "skipped" else None,
+                        "skip_reason": (
+                            skip_reasons.get(key)
+                            if key in skip_keys
+                            else "Auto-saltado: todos los subobjetivos fueron saltados"
+                            if status == "skipped"
+                            else None
+                        ),
                     }
                 )
 
@@ -489,7 +537,7 @@ def _build_routine_breakdown(
                 completed_count=completed_count,
                 skipped_count=skipped_count,
                 pending_count=pending_count,
-                total_goals=goal_count,
+                total_goals=assignment_goal_count,
                 assignment_completed=assignment.completada,
             )
             progress_percent = evaluation["progress_percent"]
@@ -510,7 +558,7 @@ def _build_routine_breakdown(
                     "progress_percent": progress_percent,
                     "progress_label": evaluation["progress_label"],
                     "is_neutral": evaluation["is_neutral"],
-                    "goal_count": goal_count,
+                    "goal_count": assignment_goal_count,
                     "completed_count": completed_count,
                     "skipped_count": skipped_count,
                     "pending_count": pending_count,
