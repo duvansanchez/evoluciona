@@ -317,7 +317,9 @@ export default function Phrases() {
         ? { ...p, reviewCount: updated.total_repasos || p.reviewCount + 1, lastReviewedAt: updated.ultima_vez || new Date().toISOString() }
         : p
     ));
-    await refreshPhraseReport(true);
+    await fetchPhraseCounts().catch(error => {
+      console.error('Error refreshing phrase counters after review:', error);
+    });
   };
 
   const handleReviewAll = async () => {

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Sun, Sunset, Moon, Target, Tag } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, X, Sun, Sunset, Moon, Target, Tag } from 'lucide-react';
 import type { Rutina, GoalSimple } from '@/services/api';
 import { goalsAPI, rutinasAPI } from '@/services/api';
 
@@ -13,6 +13,8 @@ const RUTINA_CATEGORIAS = [
   { value: 'Finanzas', emoji: '💰' },
   { value: 'Bienestar', emoji: '🧘' },
 ] as const;
+
+const CUSTOM_RUTINA_CATEGORIES_KEY = 'rutina_custom_categories_v1';
 
 const QUICK_GOAL_CATEGORIES = [
   { value: 'daily', label: 'Diario' },
@@ -61,6 +63,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   rutina?: Rutina | null;
   defaultParteDia?: string;
+  existingCategories?: string[];
   onSave: (data: {
     nombre: string;
     parte_dia: string;
@@ -72,7 +75,7 @@ interface Props {
   }) => Promise<void>;
 }
 
-export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDia, onSave }: Props) {
+export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDia, existingCategories = [], onSave }: Props) {
   const [nombre, setNombre] = useState('');
   const [parteDia, setParteDia] = useState<string>('morning');
   const [color, setColor] = useState<string>('blue');
@@ -92,6 +95,39 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
   const [quickSubgoals, setQuickSubgoals] = useState<string[]>([]);
   const [creatingGoal, setCreatingGoal] = useState(false);
   const [goalCreateError, setGoalCreateError] = useState<string | null>(null);
+  const [storedCustomCategories, setStoredCustomCategories] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_RUTINA_CATEGORIES_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0);
+    } catch {
+      return [];
+    }
+  });
+
+  const availableRutinaCategories = useMemo(() => {
+    const presetMap = new Map(RUTINA_CATEGORIAS.map(cat => [cat.value, cat.emoji]));
+    const normalizedPreset = new Set(RUTINA_CATEGORIAS.map(cat => cat.value.toLowerCase().trim()));
+
+    const mergedCustom = [...existingCategories, ...storedCustomCategories];
+
+    const custom = mergedCustom
+      .map(cat => cat.trim())
+      .filter(cat => cat.length > 0)
+      .filter(cat => !normalizedPreset.has(cat.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+      .map(value => ({ value, emoji: '🏷️' }));
+
+    return [
+      ...RUTINA_CATEGORIAS,
+      ...custom.filter(cat => !presetMap.has(cat.value)),
+    ];
+  }, [existingCategories, storedCustomCategories]);
 
   const loadAvailableGoals = async () => {
     const goals = await rutinasAPI.getRecurrenteGoals();
@@ -108,8 +144,8 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
       setDiasSemana(new Set(rutina.dias_semana ?? []));
       setSelectedGoalIds(new Set((rutina.objetivos ?? []).map(g => g.id)));
       const cat = rutina.categoria || '';
-      const isPreset = RUTINA_CATEGORIAS.some(c => c.value === cat);
-      if (isPreset) {
+      const isKnown = availableRutinaCategories.some(c => c.value === cat);
+      if (isKnown) {
         setCategoria(cat);
         setCustomCategoria('');
         setShowCustomInput(false);
@@ -141,7 +177,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
     setQuickSubgoals([]);
     setGoalCreateError(null);
     loadAvailableGoals().catch(() => {});
-  }, [open, rutina]);
+  }, [open, rutina, defaultParteDia]);
 
   const sortedAvailableGoals = [...availableGoals].sort((a, b) => {
     const aMatches = a.parte_dia === parteDia ? 1 : 0;
@@ -230,6 +266,22 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
         dias_semana: Array.from(diasSemana).sort((a, b) => a - b),
         objetivoIds: Array.from(selectedGoalIds),
       });
+
+      if (resolvedCategoria) {
+        const isPreset = RUTINA_CATEGORIAS.some(cat => cat.value.toLowerCase() === resolvedCategoria.toLowerCase());
+        if (!isPreset) {
+          setStoredCustomCategories(prev => {
+            const merged = Array.from(new Set([...prev, resolvedCategoria])).sort((a, b) =>
+              a.localeCompare(b, 'es', { sensitivity: 'base' })
+            );
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem(CUSTOM_RUTINA_CATEGORIES_KEY, JSON.stringify(merged));
+            }
+            return merged;
+          });
+        }
+      }
+
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -319,7 +371,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                 Categoría (opcional)
               </label>
               <div className="flex flex-wrap gap-2">
-                {RUTINA_CATEGORIAS.map(cat => (
+                {availableRutinaCategories.map(cat => (
                   <button
                     key={cat.value}
                     type="button"
@@ -328,14 +380,16 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                       setShowCustomInput(false);
                       setCustomCategoria('');
                     }}
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
                       categoria === cat.value
-                        ? 'border-primary bg-primary/10 text-primary'
+                        ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-300 shadow-sm ring-2 ring-emerald-400/40 scale-[1.02]'
                         : 'border-border bg-background text-muted-foreground hover:bg-muted'
                     }`}
+                    aria-pressed={categoria === cat.value}
                   >
                     <span>{cat.emoji}</span>
                     {cat.value}
+                    {categoria === cat.value && <Check className="h-3 w-3" />}
                   </button>
                 ))}
                 <button
@@ -344,13 +398,15 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                     setCategoria('__custom__');
                     setShowCustomInput(true);
                   }}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
                     categoria === '__custom__'
-                      ? 'border-primary bg-primary/10 text-primary'
+                      ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-300 shadow-sm ring-2 ring-emerald-400/40 scale-[1.02]'
                       : 'border-border bg-background text-muted-foreground hover:bg-muted'
                   }`}
+                  aria-pressed={categoria === '__custom__'}
                 >
                   ✏️ Otra
+                  {categoria === '__custom__' && <Check className="h-3 w-3" />}
                 </button>
                 {categoria && (
                   <button
@@ -362,6 +418,11 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                   </button>
                 )}
               </div>
+              <p className={`mt-2 text-[11px] font-medium ${categoria ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                {categoria
+                  ? `Seleccionada: ${categoria === '__custom__' ? (customCategoria.trim() || 'Personalizada') : categoria}`
+                  : 'Seleccionada: Ninguna'}
+              </p>
               {showCustomInput && (
                 <input
                   type="text"

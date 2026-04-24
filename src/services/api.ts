@@ -2,7 +2,16 @@
  * Servicio API para conectar con el backend FastAPI
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+function getDefaultApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3001/api';
+  }
+
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:3001/api`;
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || getDefaultApiBaseUrl();
 
 function deriveServiceApiUrl(port: number, fallback: string): string {
   try {

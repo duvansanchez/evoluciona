@@ -948,9 +948,9 @@ export default function Progress() {
                     onClick={() => {
                       const weekMonday = getWeekMonday(questionsWeekRef).toISOString().slice(0, 10);
                       if (isCurrentWeek(questionsWeekRef)) {
-                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadCurrentWeekReport(), `informe-preguntas-${weekMonday}.html`, 'Informe descargado.');
+                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadCurrentWeekReport(), `informe-preguntas-${weekMonday}.md`, 'Informe descargado.');
                       } else {
-                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadPreviousWeekReport(weekMonday), `informe-preguntas-${weekMonday}.html`, 'Informe descargado.');
+                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadPreviousWeekReport(weekMonday), `informe-preguntas-${weekMonday}.md`, 'Informe descargado.');
                       }
                     }}
                     disabled={questionsActionLoading === 'questions-download-week'}
@@ -1000,9 +1000,9 @@ export default function Progress() {
                     onClick={() => {
                       const monthOf = getMonthRef(questionsMonthRef);
                       if (isCurrentMonth(questionsMonthRef)) {
-                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadCurrentMonthReport(), `informe-preguntas-${monthOf}.html`, 'Informe descargado.');
+                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadCurrentMonthReport(), `informe-preguntas-${monthOf}.md`, 'Informe descargado.');
                       } else {
-                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadPreviousMonthReport(monthOf), `informe-preguntas-${monthOf}.html`, 'Informe descargado.');
+                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadPreviousMonthReport(monthOf), `informe-preguntas-${monthOf}.md`, 'Informe descargado.');
                       }
                     }}
                     disabled={questionsActionLoading === 'questions-download-month'}

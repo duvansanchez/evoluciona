@@ -161,7 +161,7 @@ type SkipModalTarget =
   | { type: 'subgoal'; id: string };
 
 export default function Goals() {
-  const todayKey = getLocalDateString();
+  const [todayKey, setTodayKey] = useState<string>(() => getLocalDateString());
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all' | 'historicos'>('daily');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [todayAsignaciones, setTodayAsignaciones] = useState<RutinaAsignacion[]>([]);
@@ -307,7 +307,28 @@ export default function Goals() {
   }, [todayKey]);
 
   useEffect(() => {
+    const syncTodayKey = () => {
+      const next = getLocalDateString();
+      setTodayKey(prev => (prev === next ? prev : next));
+    };
+
+    syncTodayKey();
+    const intervalId = window.setInterval(syncTodayKey, 60_000);
+    window.addEventListener('focus', syncTodayKey);
+    document.addEventListener('visibilitychange', syncTodayKey);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', syncTodayKey);
+      document.removeEventListener('visibilitychange', syncTodayKey);
+    };
+  }, []);
+
+  useEffect(() => {
     loadGoals();
+  }, [todayKey]);
+
+  useEffect(() => {
     rutinasAPI.getRutinas().then(setRutinasCatalog).catch(() => {});
     goalFoldersAPI.getFolders().then(setFolders).catch(() => {});
   }, []);
@@ -998,12 +1019,21 @@ export default function Goals() {
 
   const toggleSubGoalSkipToday = (subGoalId: string, isCurrentlySkipped: boolean, reason?: string) => {
     const previousReason = skipReasonBySubGoalId[subGoalId];
+    const parentGoal = goals.find(goal => goal.subGoals.some(sub => sub.id === subGoalId));
     const next = new Set(skippedSubGoalIds);
     if (isCurrentlySkipped) {
       next.delete(subGoalId);
     } else {
       next.add(subGoalId);
     }
+
+    const shouldAutoSkipParentGoal =
+      !isCurrentlySkipped &&
+      !!parentGoal?.recurring &&
+      !!parentGoal?.subGoals.length &&
+      parentGoal.subGoals.every(sub => next.has(sub.id)) &&
+      !!parentGoal &&
+      !skippedGoalIds.has(parentGoal.id);
 
     setSkippedSubGoalIds(next);
     setSkipReasonBySubGoalId(prev => {
@@ -1027,6 +1057,9 @@ export default function Goals() {
     void request
       .then(() => {
         void refreshSkipStateForToday();
+        if (shouldAutoSkipParentGoal && parentGoal) {
+          toggleGoalSkipToday(parentGoal.id, false, 'Auto-saltado: todos los subobjetivos fueron saltados.');
+        }
       })
       .catch(error => {
         console.error('Error toggling skipped subgoal:', error);
