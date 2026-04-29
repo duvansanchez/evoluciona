@@ -31,11 +31,12 @@ interface GoalCardProps {
   onFocusGoal?: (goalId: string) => void;
   onDelete?: (id: string) => void;
   onToggleSubGoal?: (subGoalId: string) => void;
+  onSkipSubGoalToday?: (subGoalId: string) => void;
   onSkipToday?: (id: string) => void;
   onMakeCurrent?: (id: string) => void;
 }
 
-export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onSkipToday, onMakeCurrent }: GoalCardProps) {
+export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onSkipSubGoalToday, onSkipToday, onMakeCurrent }: GoalCardProps) {
   const [expanded, setExpanded] = useState(true);
   const completedSubs = goal.subGoals.filter(s => s.completed).length;
 
@@ -118,9 +119,15 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
               </span>
             )}
             {isSkipped && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+              <span
+                title={goal.skippedReason ? `Motivo: ${goal.skippedReason}` : undefined}
+                className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground"
+              >
                 <SkipForward className="h-3 w-3" /> Saltado hoy
               </span>
+            )}
+            {isSkipped && goal.skippedReason && (
+              <span className="text-[10px] text-amber-700 dark:text-amber-300">Motivo: {goal.skippedReason}</span>
             )}
             {goal.dayPart && (
               <span className="text-[10px] text-muted-foreground">{dayPartLabels[goal.dayPart]}</span>
@@ -170,7 +177,7 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
                 <div className="mt-2 space-y-2 animate-fade-in">
                   {/* Subobjetivos sin carpeta */}
                   {unfoldered.map(sub => (
-                    <SubGoalRow key={sub.id} sub={sub} onToggle={onToggleSubGoal} />
+                    <SubGoalRow key={sub.id} sub={sub} canSkip={goal.recurring} onToggle={onToggleSubGoal} onSkipToday={onSkipSubGoalToday} />
                   ))}
                   {/* Grupos por carpeta */}
                   {grouped.map(({ folder, subs }) => (
@@ -182,7 +189,7 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
                       </div>
                       <div className="px-1 py-0.5 space-y-0.5">
                         {subs.map(sub => (
-                          <SubGoalRow key={sub.id} sub={sub} onToggle={onToggleSubGoal} />
+                          <SubGoalRow key={sub.id} sub={sub} canSkip={goal.recurring} onToggle={onToggleSubGoal} onSkipToday={onSkipSubGoalToday} />
                         ))}
                       </div>
                     </div>
@@ -197,25 +204,59 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
   );
 }
 
-function SubGoalRow({ sub, onToggle }: { sub: import('@/types').SubGoal; onToggle?: (id: string) => void }) {
+function SubGoalRow({
+  sub,
+  canSkip,
+  onToggle,
+  onSkipToday,
+}: {
+  sub: import('@/types').SubGoal;
+  canSkip?: boolean;
+  onToggle?: (id: string) => void;
+  onSkipToday?: (id: string) => void;
+}) {
   return (
     <div className="group/sub flex items-center gap-2 text-xs p-1.5 rounded-lg hover:bg-accent/50 transition-colors">
       <button
+        disabled={sub.skipped}
         onClick={() => onToggle?.(sub.id)}
         className={`h-3.5 w-3.5 shrink-0 rounded border flex items-center justify-center transition-colors cursor-pointer ${
           sub.completed ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground/30 hover:border-primary'
+        } ${sub.skipped ? 'opacity-50 cursor-not-allowed' : ''} ${
+          sub.skipped ? 'border-dashed' : ''
         }`}
       >
         {sub.completed && <Check className="h-2.5 w-2.5" />}
       </button>
-      <span className={`flex-1 ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+      <span className={`flex-1 ${sub.completed || sub.skipped ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
         {sub.title}
       </span>
+      {sub.skipped && (
+        <span
+          title={sub.skippedReason ? `Motivo: ${sub.skippedReason}` : undefined}
+          className="text-[10px] text-muted-foreground flex items-center gap-0.5"
+        >
+          <SkipForward className="h-3 w-3" />
+          Saltado hoy
+        </span>
+      )}
+      {sub.skipped && sub.skippedReason && (
+        <span className="text-[10px] text-amber-700 dark:text-amber-300">{sub.skippedReason}</span>
+      )}
       {sub.focusTimeSeconds && sub.focusTimeSeconds > 0 && (
         <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
           <Clock className="h-3 w-3" />
           {Math.floor(sub.focusTimeSeconds / 60)}m
         </span>
+      )}
+      {canSkip && !sub.completed && (
+        <button
+          onClick={() => onSkipToday?.(sub.id)}
+          className="p-1 rounded hover:bg-accent text-muted-foreground"
+          title={sub.skipped ? 'Mostrar hoy' : 'Saltar hoy'}
+        >
+          {sub.skipped ? <Eye className="h-3.5 w-3.5" /> : <SkipForward className="h-3.5 w-3.5" />}
+        </button>
       )}
     </div>
   );

@@ -13,6 +13,8 @@ export interface SubGoal {
   id: string;
   title: string;
   completed: boolean;
+  skipped?: boolean;
+  skippedReason?: string;
   notes?: string;
   completedAt?: string;
   priority?: GoalPriority;
@@ -42,6 +44,7 @@ export interface Goal {
   focusTimeSeconds?: number;
   focusNotes?: string;
   skipped: boolean;
+  skippedReason?: string;
   createdAt: string;
   scheduledFor?: string;
   scheduledType?: 'today' | 'tomorrow' | 'specific';

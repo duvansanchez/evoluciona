@@ -7,6 +7,19 @@ import type { Goal, GoalCategory, GoalFolder, GoalPriority, DayPart, SubGoal } f
 import type { Rutina } from '@/services/api';
 import GoalFoldersModal from './GoalFoldersModal';
 
+const toLocalDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getYesterdayDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return toLocalDateInputValue(date);
+};
+
 interface GoalFormData {
   title: string;
   icon: string;
@@ -58,6 +71,7 @@ interface GoalModalProps {
   folders: GoalFolder[];
   onFoldersChange: (folders: GoalFolder[]) => void;
   onSave: (data: GoalFormData) => void;
+  onRegisterCompletionForDate?: (goal: Goal, date: string) => Promise<void>;
 }
 
 const priorityDot: Record<string, string> = {
@@ -66,7 +80,7 @@ const priorityDot: Record<string, string> = {
   low: 'bg-priority-low',
 };
 
-export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, folders, onFoldersChange, onSave }: GoalModalProps) {
+export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, folders, onFoldersChange, onSave, onRegisterCompletionForDate }: GoalModalProps) {
   const isEditing = !!goal;
   const [form, setForm] = useState<GoalFormData>(defaultForm);
   const [newSubGoalTitle, setNewSubGoalTitle] = useState('');
@@ -75,6 +89,9 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
   const [showDurationSection, setShowDurationSection] = useState(false);
   const [showRelationsSection, setShowRelationsSection] = useState(false);
   const [showFoldersModal, setShowFoldersModal] = useState(false);
+  const [completionDate, setCompletionDate] = useState(getYesterdayDate());
+  const [completionSaving, setCompletionSaving] = useState(false);
+  const [completionMessage, setCompletionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (goal) {
@@ -106,6 +123,9 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
       setShowRelationsSection(false);
     }
     setNewSubGoalTitle('');
+    setCompletionDate(getYesterdayDate());
+    setCompletionSaving(false);
+    setCompletionMessage(null);
   }, [goal, open, rutinas]);
 
   useEffect(() => {
@@ -165,6 +185,22 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
     if (!form.title.trim()) return;
     onSave(form);
     onOpenChange(false);
+  };
+
+  const handleRegisterCompletion = async () => {
+    if (!goal || !onRegisterCompletionForDate || !completionDate) return;
+
+    setCompletionSaving(true);
+    setCompletionMessage(null);
+    try {
+      await onRegisterCompletionForDate(goal, completionDate);
+      setCompletionMessage(`Completado registrado para ${completionDate}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo registrar el completado.';
+      setCompletionMessage(message);
+    } finally {
+      setCompletionSaving(false);
+    }
   };
 
   const parentGoals = goals.filter(g => g.isParent && g.id !== goal?.id);
@@ -552,6 +588,52 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
               </div>
             </div>
           </CollapsibleSection>
+
+          {isEditing && goal && onRegisterCompletionForDate && (
+            <div className="border border-primary/20 rounded-xl bg-primary/5 p-4 space-y-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Registrar completado manual</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Si sí lo completaste pero se te olvidó marcarlo, puedes registrarlo para hoy, ayer o una fecha específica.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCompletionDate(toLocalDateInputValue(new Date()))}
+                  className="rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground border border-border hover:bg-muted/60 transition-colors"
+                >
+                  Hoy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCompletionDate(getYesterdayDate())}
+                  className="rounded-lg bg-background px-3 py-2 text-xs font-semibold text-foreground border border-border hover:bg-muted/60 transition-colors"
+                >
+                  Ayer
+                </button>
+                <input
+                  type="date"
+                  value={completionDate}
+                  onChange={e => setCompletionDate(e.target.value)}
+                  className="modal-input max-w-[180px]"
+                />
+                <button
+                  type="button"
+                  onClick={handleRegisterCompletion}
+                  disabled={completionSaving || !completionDate}
+                  className="rounded-xl bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {completionSaving ? 'Registrando...' : 'Marcar completado'}
+                </button>
+              </div>
+
+              {completionMessage && (
+                <p className="text-xs text-muted-foreground">{completionMessage}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

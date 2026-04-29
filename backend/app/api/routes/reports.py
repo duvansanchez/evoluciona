@@ -7,8 +7,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.models.models import WeeklyConclusion
-from app.schemas.schemas import WeeklyConclusionResponse, WeeklyConclusionUpsert
+from app.models.models import WeeklyConclusion, DuvanConclusion
+from app.schemas.schemas import (
+    WeeklyConclusionResponse,
+    WeeklyConclusionUpsert,
+    DuvanConclusionCreate,
+    DuvanConclusionResponse,
+)
 from app.services.stats_service import (
     build_monthly_report,
     build_weekly_report,
@@ -17,7 +22,7 @@ from app.services.stats_service import (
     get_previous_week_range,
     get_week_range,
 )
-from app.services.email_service import build_html_report, send_weekly_report
+from app.services.email_service import build_html_report, build_markdown_report, send_weekly_report
 from app.services.report_scheduler_service import (
     get_scheduler_state,
     update_scheduler_config,
@@ -27,6 +32,8 @@ from app.services.report_scheduler_service import (
 from datetime import date
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+ALLOWED_CONCLUSION_TYPES = {"emocional", "trabajo", "vida", "personas"}
 
 
 class ReportScheduleUpdate(BaseModel):
@@ -68,6 +75,23 @@ def _html_download_response(html: str, filename: str) -> Response:
     )
 
 
+def _markdown_download_response(md: str, filename: str) -> Response:
+    return Response(
+        content=md.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _normalize_download_format(fmt: str | None) -> str:
+    value = (fmt or "markdown").lower()
+    if value == "md":
+        return "markdown"
+    if value in {"markdown", "html"}:
+        return value
+    raise HTTPException(status_code=400, detail="format must be html or markdown")
+
+
 def _resolve_single_week(reference_date: str | None):
     try:
         ref = date.fromisoformat(reference_date) if reference_date else date.today()
@@ -106,6 +130,16 @@ def _serialize_weekly_conclusion(row: WeeklyConclusion | None, week_start: date,
         content=row.content if row else "",
         created_at=row.created_at if row else None,
         updated_at=row.updated_at if row else None,
+    )
+
+
+def _serialize_duvan_conclusion(row: DuvanConclusion) -> DuvanConclusionResponse:
+    return DuvanConclusionResponse(
+        id=row.id,
+        conclusion_type=row.conclusion_type,
+        content=row.content,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -225,6 +259,57 @@ def delete_weekly_conclusion(
     }
 
 
+@router.get("/duvan-conclusions", response_model=list[DuvanConclusionResponse])
+def get_duvan_conclusions(
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(DuvanConclusion)
+        .order_by(DuvanConclusion.created_at.desc(), DuvanConclusion.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_serialize_duvan_conclusion(row) for row in rows]
+
+
+@router.post("/duvan-conclusions", response_model=DuvanConclusionResponse)
+def create_duvan_conclusion(
+    payload: DuvanConclusionCreate,
+    db: Session = Depends(get_db),
+):
+    cleaned_content = payload.content.strip()
+    if not cleaned_content:
+        raise HTTPException(status_code=400, detail="La conclusion no puede estar vacia.")
+
+    normalized_type = (payload.conclusion_type or "vida").strip().lower()
+    if normalized_type not in ALLOWED_CONCLUSION_TYPES:
+        raise HTTPException(status_code=400, detail="Tipo de conclusion invalido. Usa: emocional, trabajo, vida o personas.")
+
+    row = DuvanConclusion(
+        conclusion_type=normalized_type,
+        content=cleaned_content,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _serialize_duvan_conclusion(row)
+
+
+@router.delete("/duvan-conclusions/{conclusion_id}")
+def delete_duvan_conclusion(
+    conclusion_id: int,
+    db: Session = Depends(get_db),
+):
+    row = db.query(DuvanConclusion).filter(DuvanConclusion.id == conclusion_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="No existe la conclusion solicitada.")
+
+    db.delete(row)
+    db.commit()
+    return {"message": "Conclusion eliminada correctamente", "id": conclusion_id}
+
+
 @router.post("/send-weekly")
 def send_weekly_email(
     week_of: str = Query(None, description="Fecha en la semana deseada (YYYY-MM-DD). Por defecto: semana anterior."),
@@ -294,16 +379,19 @@ def preview_weekly_report(
 @router.get("/download-weekly")
 def download_weekly_report(
     week_of: str = Query(None, description="Fecha en la semana deseada (YYYY-MM-DD). Por defecto: semana anterior."),
+    format: str = Query("markdown"),
     db: Session = Depends(get_db)
 ):
-    """Descarga el informe semanal en HTML."""
+    """Descarga el informe semanal en HTML o Markdown."""
     week_start, week_end = _resolve_week_range(week_of, use_previous_default=True)
     data = build_weekly_report(db, week_start, week_end)
-    html = build_html_report(data)
-    return _html_download_response(
-        html,
-        f"informe-preguntas-semanal-{week_start}_{week_end}.html",
-    )
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
+    md = build_markdown_report(data)
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.post("/send-current-week")
@@ -438,16 +526,19 @@ def preview_monthly_report(
 @router.get("/download-monthly")
 def download_monthly_report(
     month_of: str = Query(None, description="Fecha dentro del mes deseado (YYYY-MM-DD). Por defecto: mes anterior."),
+    format: str = Query("markdown"),
     db: Session = Depends(get_db)
 ):
-    """Descarga el informe mensual en HTML."""
+    """Descarga el informe mensual en HTML o Markdown."""
     month_start, month_end = _resolve_month_range(month_of, use_previous_default=True)
     data = build_monthly_report(db, month_start, month_end)
-    html = build_html_report(data)
-    return _html_download_response(
-        html,
-        f"informe-preguntas-mensual-{month_start}_{month_end}.html",
-    )
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-mensual-{month_start}_{month_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
+    md = build_markdown_report(data)
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.post("/send-current-month")
@@ -511,8 +602,11 @@ def send_current_month_email(db: Session = Depends(get_db)):
 
 
 @router.get("/download-current-week")
-def download_current_week_report(db: Session = Depends(get_db)):
-    """Descarga el informe parcial acumulado de la semana actual en HTML."""
+def download_current_week_report(
+    format: str = Query("markdown"),
+    db: Session = Depends(get_db)
+):
+    """Descarga el informe parcial acumulado de la semana actual en HTML o Markdown."""
     today = date.today()
     week_start, week_end = get_week_range(today)
     data = build_weekly_report(db, week_start, week_end)
@@ -527,17 +621,21 @@ def download_current_week_report(db: Session = Depends(get_db)):
     data["days_completed"] = days_completed
     data["completion_rate"] = completion_rate
     data["week_label"] = f"{data['week_label']} (acumulado a {today.isoformat()})"
-
-    html = build_html_report(data)
-    return _html_download_response(
-        html,
-        f"informe-preguntas-semana-actual-{today.isoformat()}.html",
-    )
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
+    md = build_markdown_report(data)
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.get("/download-current-month")
-def download_current_month_report(db: Session = Depends(get_db)):
-    """Descarga el informe parcial acumulado del mes actual en HTML."""
+def download_current_month_report(
+    format: str = Query("markdown"),
+    db: Session = Depends(get_db)
+):
+    """Descarga el informe parcial acumulado del mes actual en HTML o Markdown."""
     today = date.today()
     month_start, month_end = get_month_range(today)
     data = build_monthly_report(db, month_start, month_end)
@@ -552,9 +650,10 @@ def download_current_month_report(db: Session = Depends(get_db)):
     data["days_completed"] = days_completed
     data["completion_rate"] = completion_rate
     data["week_label"] = f"{data['week_label']} (acumulado a {today.isoformat()})"
-
-    html = build_html_report(data)
-    return _html_download_response(
-        html,
-        f"informe-preguntas-mes-actual-{today.isoformat()}.html",
-    )
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-mes-actual-{today.isoformat()}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
+    md = build_markdown_report(data)
+    return _markdown_download_response(md, f"{base_filename}.md")

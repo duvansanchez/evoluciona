@@ -42,3 +42,17 @@ class SubGoalResponse(SubGoalBase):
 
     class Config:
         from_attributes = True
+
+
+class SubGoalSkipDayResponse(BaseModel):
+    """Respuesta para un subobjetivo saltado en una fecha."""
+    subgoal_id: int
+    fecha: str
+    reason: Optional[str] = None
+
+
+class SubGoalSkipDayDetailResponse(BaseModel):
+    """Detalle de salto de subobjetivo para una fecha."""
+    subgoal_id: int
+    fecha: str
+    reason: Optional[str] = None

@@ -3,7 +3,7 @@ Endpoints para frases (Phrases y Categories).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -18,7 +18,7 @@ from app.schemas.schemas import (
 from app.services.phrase_service import (
     PhraseCategoryService, PhraseSubcategoryService, PhraseService, build_phrase_report
 )
-from app.services.email_service import build_html_phrase_report, send_weekly_report
+from app.services.email_service import build_html_phrase_report, build_markdown_phrase_report, send_weekly_report
 from app.services.tts_service import (
     TTSServiceError,
     get_tts_status,
@@ -393,6 +393,54 @@ def generate_phrase_audio(payload: PhraseAudioRequest):
         iter([audio_bytes]),
         media_type="audio/mpeg",
         headers={"Content-Disposition": 'inline; filename="phrase-audio.mp3"'},
+    )
+
+
+@router.get("/report/download")
+def download_phrase_report(
+    mode: str = Query("weekly"),
+    reference_date: str | None = Query(None),
+    format: str = Query("markdown"),
+    db: Session = Depends(get_db),
+):
+    """Descarga el informe de frases del periodo en HTML o Markdown."""
+    normalized_mode = (mode or "weekly").lower()
+    if normalized_mode not in {"weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    normalized_format = (format or "markdown").lower()
+    if normalized_format == "md":
+        normalized_format = "markdown"
+    if normalized_format not in {"html", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be html or markdown")
+
+    parsed_reference: date | None = None
+    if reference_date:
+        try:
+            parsed_reference = date.fromisoformat(reference_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
+
+    data = build_phrase_report(db, normalized_mode, parsed_reference)
+    if normalized_mode == "weekly":
+        base_filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}"
+    else:
+        base_filename = f"informe-frases-mensual-{data['period_start']}_{data['period_end']}"
+
+    if normalized_format == "html":
+        html = build_html_phrase_report(data)
+        return Response(
+            content=html,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.html"'},
+        )
+
+    md = build_markdown_phrase_report(data)
+
+    return Response(
+        content=md.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
     )
 
 

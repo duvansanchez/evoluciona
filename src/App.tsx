@@ -14,6 +14,7 @@ import Progress from "./pages/Progress";
 import Questions from "./pages/Questions";
 import QuestionsAnswer from "./pages/QuestionsAnswer";
 import QuestionsAdmin from "./pages/QuestionsAdmin";
+import Recordatorios from "./pages/Recordatorios";
 import Rutina from "./pages/Rutina";
 import NotFound from "./pages/NotFound";
 
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/questions" element={<Questions />} />
               <Route path="/questions/answer" element={<QuestionsAnswer />} />
               <Route path="/questions/admin" element={<QuestionsAdmin />} />
+              <Route path="/recordatorios" element={<Recordatorios />} />
               <Route path="/rutina" element={<Rutina />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

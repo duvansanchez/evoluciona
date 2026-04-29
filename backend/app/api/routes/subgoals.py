@@ -3,15 +3,36 @@ Endpoints para subobjetivos (SubGoals).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Body
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.subgoal_schemas import (
-    SubGoalCreate, SubGoalUpdate, SubGoalResponse
+    SubGoalCreate, SubGoalUpdate, SubGoalResponse, SubGoalSkipDayResponse, SubGoalSkipDayDetailResponse
 )
 from app.services.subgoal_service import SubGoalService
 from typing import List
 
 router = APIRouter(tags=["subgoals"])
+
+
+class SkipReasonPayload(BaseModel):
+    reason: str | None = None
+
+
+@router.get("/api/subgoals/skips", response_model=List[int])
+def list_skipped_subgoals(fecha: str, db: Session = Depends(get_db)):
+    """Obtener IDs de subobjetivos saltados para una fecha."""
+    return SubGoalService.get_skipped_subgoal_ids(db, fecha)
+
+
+@router.get("/api/subgoals/skips/details", response_model=List[SubGoalSkipDayDetailResponse])
+def list_skipped_subgoals_details(fecha: str, db: Session = Depends(get_db)):
+    """Obtener detalle de subobjetivos saltados para una fecha."""
+    rows = SubGoalService.get_skipped_subgoal_entries(db, fecha)
+    return [
+        SubGoalSkipDayDetailResponse(subgoal_id=row.subobjetivo_id, fecha=row.fecha, reason=row.motivo)
+        for row in rows
+    ]
 
 
 @router.get("/api/goals/{goal_id}/subgoals", response_model=List[SubGoalResponse])
@@ -35,6 +56,29 @@ def update_subgoal(subgoal_id: int, subgoal: SubGoalUpdate, db: Session = Depend
     if not db_subgoal:
         raise HTTPException(status_code=404, detail="SubGoal not found")
     return db_subgoal
+
+
+@router.post("/api/subgoals/{subgoal_id}/skip", response_model=SubGoalSkipDayResponse, status_code=201)
+def skip_subgoal_for_date(
+    subgoal_id: int,
+    fecha: str,
+    payload: SkipReasonPayload | None = Body(default=None),
+    db: Session = Depends(get_db),
+):
+    """Marcar un subobjetivo como saltado para una fecha."""
+    skipped = SubGoalService.skip_subgoal_for_date(db, subgoal_id, fecha, payload.reason if payload else None)
+    if not skipped:
+        raise HTTPException(status_code=404, detail="Recurring subgoal not found")
+    return SubGoalSkipDayResponse(subgoal_id=skipped.subobjetivo_id, fecha=skipped.fecha, reason=skipped.motivo)
+
+
+@router.delete("/api/subgoals/{subgoal_id}/skip")
+def unskip_subgoal_for_date(subgoal_id: int, fecha: str, db: Session = Depends(get_db)):
+    """Quitar el estado de saltado de un subobjetivo para una fecha."""
+    removed = SubGoalService.unskip_subgoal_for_date(db, subgoal_id, fecha)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Skipped subgoal entry not found")
+    return {"message": "Subgoal skip removed"}
 
 
 @router.delete("/api/subgoals/{subgoal_id}", status_code=204)

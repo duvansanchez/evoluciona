@@ -4,8 +4,9 @@ Modelo para subobjetivos (tabla subobjetivos separada).
 
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, ForeignKey, Text
+    Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 )
+from sqlalchemy.orm import relationship
 from app.db.database import Base
 
 
@@ -22,3 +23,20 @@ class SubGoal(Base):
     tiempo_focus = Column(Integer, nullable=True, default=0)  # Tiempo en segundos
     notas = Column(Text, nullable=True)
     folder_id = Column(Integer, ForeignKey("carpetas_subobjetivos.id", ondelete="SET NULL"), nullable=True)
+    skip_days = relationship("SubGoalSkipDay", back_populates="subgoal", cascade="all, delete-orphan")
+
+
+class SubGoalSkipDay(Base):
+    """Marca un subobjetivo como saltado para una fecha concreta."""
+    __tablename__ = "subobjetivo_saltado_dias"
+    __table_args__ = (
+        UniqueConstraint("subobjetivo_id", "fecha", name="uq_subobjetivo_saltado_dia"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    subobjetivo_id = Column(Integer, ForeignKey("subobjetivos.id", ondelete="CASCADE"), nullable=False)
+    fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    motivo = Column(Text, nullable=True)
+    fecha_creacion = Column(DateTime, nullable=True, default=datetime.utcnow)
+
+    subgoal = relationship("SubGoal", back_populates="skip_days")

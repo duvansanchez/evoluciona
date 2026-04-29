@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type KeyboardEvent } from 'react';
-import { CheckCircle2, Pause, Play, RotateCcw, X, Bold, Italic, List, ListChecks, Code, Heading1, Heading2, Heading3, Minus, Pencil, ChevronRight } from 'lucide-react';
+import { CheckCircle2, Pause, Play, RotateCcw, X, Bold, Italic, List, ListChecks, Code, Heading1, Heading2, Heading3, Minus, Pencil, ChevronRight, VolumeX } from 'lucide-react';
 import type { SubGoal, Goal } from '../../types';
 import { renderMarkdownPreview } from '@/utils/markdownPreview';
 
@@ -30,6 +30,31 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editorDialogRef = useRef<HTMLDivElement>(null);
   const prevOpenRef = useRef(open);
+  const reminderUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [isReminderSpeaking, setIsReminderSpeaking] = useState(false);
+
+  const getYearEndReminder = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfYear = new Date(now.getFullYear(), 11, 31);
+    const diffMs = endOfYear.getTime() - today.getTime();
+    const daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+    if (daysLeft === 0) {
+      return 'Hoy termina el año. Aprovecha este último día para avanzar en tus metas.';
+    }
+    if (daysLeft === 1) {
+      return 'Queda un día para terminar el año. Enfócate y termina fuerte tus metas de hoy.';
+    }
+    return `Quedan ${daysLeft} días para terminar el año. Enfócate y avanza con tus metas de hoy.`;
+  };
+
+  const stopYearReminderSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    reminderUtteranceRef.current = null;
+    setIsReminderSpeaking(false);
+  };
 
   // Cargar datos del subobjetivo
   useEffect(() => {
@@ -46,6 +71,27 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
     }
     prevOpenRef.current = open;
   }, [open, subGoal?.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    const reminder = getYearEndReminder();
+    stopYearReminderSpeech();
+    const utterance = new SpeechSynthesisUtterance(reminder);
+    utterance.lang = 'es-CO';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onend = () => setIsReminderSpeaking(false);
+    utterance.onerror = () => setIsReminderSpeaking(false);
+    reminderUtteranceRef.current = utterance;
+    setIsReminderSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+
+    return () => {
+      stopYearReminderSpeech();
+    };
+  }, [open]);
 
   // Timer logic
   useEffect(() => {
@@ -416,6 +462,16 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
                   <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
                   Cambios sin guardar
                 </span>
+              )}
+              {isReminderSpeaking && (
+                <button
+                  onClick={stopYearReminderSpeech}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+                  title="Parar lectura"
+                >
+                  <VolumeX className="h-4 w-4" />
+                  Parar voz
+                </button>
               )}
             </div>
           </div>

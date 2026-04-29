@@ -33,7 +33,8 @@ export default function ReviewModal({
   const [showNotes, setShowNotes] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [badgePopKey, setBadgePopKey] = useState(0);
-  const [savingReview, setSavingReview] = useState(false);
+  const [, setPendingReviewCount] = useState(0);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioProvider, setAudioProvider] = useState<'browser' | 'elevenlabs' | 'edge'>('browser');
   const [serviceVoiceName, setServiceVoiceName] = useState<string | null>(null);
@@ -135,8 +136,13 @@ export default function ReviewModal({
 
   const markPhraseAsReviewed = async (phraseId: string) => {
     if (reviewedPhraseIdsRef.current.has(phraseId)) return;
-    await onReview(phraseId);
     reviewedPhraseIdsRef.current.add(phraseId);
+    try {
+      await onReview(phraseId);
+    } catch (error) {
+      reviewedPhraseIdsRef.current.delete(phraseId);
+      throw error;
+    }
   };
 
   const queueNextPhraseAfterPlayback = () => {
@@ -276,6 +282,7 @@ export default function ReviewModal({
       setServiceVoiceName(null);
       setAudioStatusLoading(true);
       setAudioError(null);
+      setReviewError(null);
       setIsSpeaking(false);
       setIsPaused(false);
       setShowAudioSettings(false);
@@ -441,17 +448,26 @@ export default function ReviewModal({
   };
 
   const handleMarkAsReviewed = async () => {
-    if (savingReview) return;
+    const phraseId = currentPhrase.id;
+    const hasNext = currentIndex < phrases.length - 1;
+
     try {
-      setSavingReview(true);
-      await markPhraseAsReviewed(currentPhrase.id);
-      if (currentIndex < phrases.length - 1) {
+      setPendingReviewCount(count => count + 1);
+      setReviewError(null);
+
+      // Avance optimista: no bloquear la navegación por latencia/errores de red.
+      if (hasNext) {
         handleNext();
       } else {
         onOpenChange(false);
       }
+
+      await markPhraseAsReviewed(phraseId);
+    } catch (error) {
+      console.error('Error registering phrase review:', error);
+      setReviewError('No se pudo registrar este repaso en el servidor, pero puedes continuar.');
     } finally {
-      setSavingReview(false);
+      setPendingReviewCount(count => Math.max(0, count - 1));
     }
   };
 
@@ -878,6 +894,11 @@ export default function ReviewModal({
       {/* Bottom Actions */}
       <div className="fixed bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4">
+          {reviewError && (
+            <p className="mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              {reviewError}
+            </p>
+          )}
           <div className="flex items-center justify-center gap-3 max-w-2xl mx-auto">
             <button
               onClick={handlePrevious}
@@ -890,7 +911,6 @@ export default function ReviewModal({
 
             <button
               onClick={handleMarkAsReviewed}
-              disabled={savingReview}
               className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {currentIndex < phrases.length - 1 ? '✓ Repasada' : '✓ Finalizar Repaso'}

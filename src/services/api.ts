@@ -2,9 +2,28 @@
  * Servicio API para conectar con el backend FastAPI
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-const FINANCE_HUB_API_URL = import.meta.env.VITE_FINANCE_HUB_API_URL || 'http://localhost:3005/api';
-const MINDFUL_STUDY_API_URL = import.meta.env.VITE_MINDFUL_STUDY_API_URL || 'http://localhost:3002/api';
+function getDefaultApiBaseUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'http://localhost:3001/api';
+  }
+
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:3001/api`;
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || getDefaultApiBaseUrl();
+
+function deriveServiceApiUrl(port: number, fallback: string): string {
+  try {
+    const apiUrl = new URL(API_BASE_URL);
+    return `${apiUrl.protocol}//${apiUrl.hostname}:${port}/api`;
+  } catch {
+    return fallback;
+  }
+}
+
+const FINANCE_HUB_API_URL = import.meta.env.VITE_FINANCE_HUB_API_URL || deriveServiceApiUrl(3005, 'http://localhost:3005/api');
+const MINDFUL_STUDY_API_URL = import.meta.env.VITE_MINDFUL_STUDY_API_URL || deriveServiceApiUrl(3002, 'http://localhost:3002/api');
 
 // Tipos para respuestas paginadas
 interface PaginatedResponse<T> {
@@ -26,30 +45,58 @@ export const goalsAPI = {
   },
 
   getSkippedGoals: async (date: string) => {
-    const response = await fetch(`${API_BASE_URL}/goals/skips?fecha=${date}`);
-    if (!response.ok) throw new Error('Error fetching skipped goals');
+    const response = await fetch(`${API_BASE_URL}/goals/skips?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped goals (${response.status})`);
+    }
     return response.json() as Promise<number[]>;
   },
 
+  getSkippedGoalsDetails: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/goals/skips/details?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped goal details (${response.status})`);
+    }
+    return response.json() as Promise<Array<{ goal_id: number; fecha: string; reason?: string | null }>>;
+  },
+
   getCompletedGoals: async (date: string) => {
-    const response = await fetch(`${API_BASE_URL}/goals/completions?fecha=${date}`);
+    const response = await fetch(`${API_BASE_URL}/goals/completions?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
     if (!response.ok) throw new Error('Error fetching completed goals');
     return response.json() as Promise<Array<{ goal_id: number; fecha: string; completed_at?: string }>>;
   },
 
-  skipGoalForDate: async (goalId: number | string, date: string) => {
+  skipGoalForDate: async (goalId: number | string, date: string, reason?: string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
     });
-    if (!response.ok) throw new Error('Error skipping goal for date');
-    return response.json();
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error skipping goal for date (${response.status})`);
+    }
+    return response.json() as Promise<{ goal_id: number; fecha: string; reason?: string | null }>;
   },
 
   unskipGoalForDate: async (goalId: number | string, date: string) => {
     const response = await fetch(`${API_BASE_URL}/goals/${goalId}/skip?fecha=${date}`, {
       method: 'DELETE',
     });
-    if (!response.ok) throw new Error('Error removing skipped goal for date');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error removing skipped goal for date (${response.status})`);
+    }
     return response.json();
   },
 
@@ -120,6 +167,26 @@ export const goalsAPI = {
     if (!response.ok) throw new Error('Error fetching subgoals');
     return response.json();
   },
+  getSkippedSubGoals: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/skips?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped subgoals (${response.status})`);
+    }
+    return response.json() as Promise<number[]>;
+  },
+  getSkippedSubGoalsDetails: async (date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/skips/details?fecha=${date}&_t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error fetching skipped subgoal details (${response.status})`);
+    }
+    return response.json() as Promise<Array<{ subgoal_id: number; fecha: string; reason?: string | null }>>;
+  },
   updateSubGoal: async (subGoalId: number | string, updates: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}`, {
       method: 'PATCH',
@@ -157,6 +224,30 @@ export const goalsAPI = {
       },
     });
     if (!response.ok) throw new Error('Error deleting subgoal');
+    return response.json();
+  },
+  skipSubGoalForDate: async (subGoalId: number | string, date: string, reason?: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ reason }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error skipping subgoal for date (${response.status})`);
+    }
+    return response.json() as Promise<{ subgoal_id: number; fecha: string; reason?: string | null }>;
+  },
+  unskipSubGoalForDate: async (subGoalId: number | string, date: string) => {
+    const response = await fetch(`${API_BASE_URL}/subgoals/${subGoalId}/skip?fecha=${date}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `Error removing skipped subgoal for date (${response.status})`);
+    }
     return response.json();
   },
 };
@@ -334,8 +425,8 @@ export const phrasesAPI = {
     return response.json();
   },
 
-  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
-    let url = `${API_BASE_URL}/phrases/report/download?mode=${mode}`;
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string, format: 'html' | 'markdown' = 'markdown') => {
+    let url = `${API_BASE_URL}/phrases/report/download?mode=${mode}&format=${format}`;
     if (referenceDate) url += `&reference_date=${referenceDate}`;
 
     const response = await fetch(url);
@@ -567,10 +658,10 @@ export const reportsAPI = {
     }
     return response.json();
   },
-  sendPreviousWeekReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/send-weekly`, {
-      method: 'POST',
-    });
+  sendPreviousWeekReport: async (weekOf?: string) => {
+    let url = `${API_BASE_URL}/reports/send-weekly`;
+    if (weekOf) url += `?week_of=${weekOf}`;
+    const response = await fetch(url, { method: 'POST' });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error sending previous week report');
@@ -587,10 +678,10 @@ export const reportsAPI = {
     }
     return response.json();
   },
-  sendPreviousMonthReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/send-monthly`, {
-      method: 'POST',
-    });
+  sendPreviousMonthReport: async (monthOf?: string) => {
+    let url = `${API_BASE_URL}/reports/send-monthly`;
+    if (monthOf) url += `?month_of=${monthOf}`;
+    const response = await fetch(url, { method: 'POST' });
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error sending previous month report');
@@ -598,17 +689,20 @@ export const reportsAPI = {
     return response.json();
   },
 
-  downloadCurrentWeekReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/download-current-week`);
+  downloadCurrentWeekReport: async (format: 'html' | 'markdown' = 'markdown') => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-week?format=${format}`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error downloading current week report');
     }
     return response.blob();
   },
-  downloadPreviousWeekReport: async (weekOf?: string) => {
+  downloadPreviousWeekReport: async (weekOf?: string, format: 'html' | 'markdown' = 'markdown') => {
     let url = `${API_BASE_URL}/reports/download-weekly`;
-    if (weekOf) url += `?week_of=${weekOf}`;
+    const params = new URLSearchParams();
+    if (weekOf) params.set('week_of', weekOf);
+    params.set('format', format);
+    url += `?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
@@ -616,17 +710,20 @@ export const reportsAPI = {
     }
     return response.blob();
   },
-  downloadCurrentMonthReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/download-current-month`);
+  downloadCurrentMonthReport: async (format: 'html' | 'markdown' = 'markdown') => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-month?format=${format}`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error downloading current month report');
     }
     return response.blob();
   },
-  downloadPreviousMonthReport: async (monthOf?: string) => {
+  downloadPreviousMonthReport: async (monthOf?: string, format: 'html' | 'markdown' = 'markdown') => {
     let url = `${API_BASE_URL}/reports/download-monthly`;
-    if (monthOf) url += `?month_of=${monthOf}`;
+    const params = new URLSearchParams();
+    if (monthOf) params.set('month_of', monthOf);
+    params.set('format', format);
+    url += `?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
@@ -670,6 +767,35 @@ export const reportsAPI = {
     }
     return response.json() as Promise<{ message: string; week_start: string; week_end: string }>;
   },
+  getDuvanConclusions: async (limit = 20) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions?limit=${limit}`);
+    if (!response.ok) throw new Error('Error fetching duvan conclusions');
+    return response.json() as Promise<DuvanConclusion[]>;
+  },
+  saveDuvanConclusion: async (conclusionType: 'emocional' | 'trabajo' | 'vida' | 'personas', content: string) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ conclusion_type: conclusionType, content }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error saving duvan conclusion');
+    }
+    return response.json() as Promise<DuvanConclusion>;
+  },
+  deleteDuvanConclusion: async (id: number) => {
+    const response = await fetch(`${API_BASE_URL}/reports/duvan-conclusions/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Error deleting duvan conclusion');
+    }
+    return response.json() as Promise<{ message: string; id: number }>;
+  },
 };
 
 export interface WeeklyConclusion {
@@ -677,6 +803,14 @@ export interface WeeklyConclusion {
   week_start: string;
   week_end: string;
   period_label: string;
+  content: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DuvanConclusion {
+  id: number;
+  conclusion_type: 'emocional' | 'trabajo' | 'vida' | 'personas';
   content: string;
   created_at?: string | null;
   updated_at?: string | null;
@@ -811,6 +945,7 @@ export interface GoalSimple {
   icono?: string;
   categoria?: string;
   frecuencia?: string;
+  parte_dia?: 'morning' | 'afternoon' | 'evening' | null;
 }
 
 export interface RutinaBloque {
@@ -828,7 +963,10 @@ export interface Rutina {
   nombre: string;
   parte_dia: 'morning' | 'afternoon' | 'evening';
   color?: string;
+  categoria?: string;
   descripcion?: string;
+  duracion_proyectada_minutos?: number;
+  dias_semana: number[];
   activa: boolean;
   fecha_creacion?: string;
   bloques: RutinaBloque[];
@@ -841,6 +979,7 @@ export interface RutinaAsignacion {
   parte_dia: string;
   rutina_id: number;
   completada: boolean;
+  es_automatica: boolean;
   objetivo_ids: number[];
   rutina: Rutina;
 }
@@ -900,13 +1039,15 @@ export interface RutinaReportRoutineBreakdownGoalItem {
   title: string;
   icon?: string | null;
   status: 'completed' | 'skipped' | 'pending';
+  skip_reason?: string | null;
 }
 
 export interface RutinaReportRoutineBreakdownDayItem {
   date: string;
   completed_assignment: boolean;
-  progress_percent: number;
+  progress_percent: number | null;
   progress_label: string;
+  is_neutral: boolean;
   goal_count: number;
   completed_count: number;
   skipped_count: number;
@@ -922,6 +1063,7 @@ export interface RutinaReportRoutineBreakdownItem {
   assigned: number;
   completed: number;
   failed_days: number;
+  neutral_days: number;
   linked_goals: number;
   average_progress_percent: number;
   days: RutinaReportRoutineBreakdownDayItem[];
@@ -970,7 +1112,26 @@ function normalizeRutinaReportData(data: any): RutinaReportData {
       distinct_goals: Number(data?.goal_completion_summary?.distinct_goals ?? 0),
     },
     goal_completion_log: Array.isArray(data?.goal_completion_log) ? data.goal_completion_log : [],
-    routine_breakdown: Array.isArray(data?.routine_breakdown) ? data.routine_breakdown : [],
+    routine_breakdown: Array.isArray(data?.routine_breakdown)
+      ? data.routine_breakdown.map((routine: any) => ({
+          ...routine,
+          failed_days: Number(routine?.failed_days ?? 0),
+          neutral_days: Number(routine?.neutral_days ?? 0),
+          average_progress_percent: Number(routine?.average_progress_percent ?? 0),
+          days: Array.isArray(routine?.days)
+            ? routine.days.map((day: any) => ({
+                ...day,
+                progress_percent: day?.progress_percent == null ? null : Number(day.progress_percent),
+                is_neutral: Boolean(day?.is_neutral),
+                completed_count: Number(day?.completed_count ?? 0),
+                skipped_count: Number(day?.skipped_count ?? 0),
+                pending_count: Number(day?.pending_count ?? 0),
+                goal_count: Number(day?.goal_count ?? 0),
+                goals: Array.isArray(day?.goals) ? day.goals : [],
+              }))
+            : [],
+        }))
+      : [],
     streaks: {
       current: Number(data?.streaks?.current ?? 0),
       max: Number(data?.streaks?.max ?? 0),
@@ -994,7 +1155,10 @@ export const rutinasAPI = {
     nombre: string;
     parte_dia: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
+    duracion_proyectada_minutos?: number;
+    dias_semana: number[];
     bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
     const r = await fetch(`${API_BASE_URL}/rutinas`, {
@@ -1010,7 +1174,10 @@ export const rutinasAPI = {
     nombre?: string;
     parte_dia?: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
+    duracion_proyectada_minutos?: number | null;
+    dias_semana?: number[];
     bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
     const r = await fetch(`${API_BASE_URL}/rutinas/${id}`, {
@@ -1049,6 +1216,8 @@ export const rutinasAPI = {
 
   updateAsignacion: async (id: number, data: {
     rutina_id?: number;
+    fecha?: string;
+    parte_dia?: string;
     completada?: boolean;
     objetivo_ids?: number[];
   }): Promise<RutinaAsignacion> => {
@@ -1097,8 +1266,8 @@ export const rutinasAPI = {
     return r.json();
   },
 
-  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
-    let url = `${API_BASE_URL}/rutinas/report/download?mode=${mode}`;
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string, format: 'html' | 'markdown' = 'html') => {
+    let url = `${API_BASE_URL}/rutinas/report/download?mode=${mode}&format=${format}`;
     if (referenceDate) url += `&reference_date=${referenceDate}`;
     const r = await fetch(url);
     if (!r.ok) {
@@ -1160,6 +1329,21 @@ function normalizeExternalGoals(items: any[]): ExternalGoal[] {
 
 export interface ReminderPartConfig { enabled: boolean; hour: number; minute: number; }
 export interface ReminderConfig { manana: ReminderPartConfig; noche: ReminderPartConfig; }
+export interface CustomReminder {
+  id: string;
+  title: string;
+  message: string;
+  date: string;
+  hour: number;
+  minute: number;
+  times: Array<{ hour: number; minute: number }>;
+  recurrence: 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'multi_daily';
+  enabled: boolean;
+  recipient?: string | null;
+  notes?: string | null;
+  created_at: string;
+  next_run_time?: string | null;
+}
 
 export const remindersAPI = {
   getConfig: async (): Promise<ReminderConfig> => {
@@ -1181,6 +1365,49 @@ export const remindersAPI = {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.detail || 'Error enviando recordatorio de prueba');
+    }
+  },
+  listCustom: async (): Promise<CustomReminder[]> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom`);
+    if (!r.ok) throw new Error('Error fetching custom reminders');
+    return r.json();
+  },
+  createCustom: async (payload: Omit<CustomReminder, 'id' | 'created_at' | 'next_run_time'>): Promise<CustomReminder> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error creating custom reminder');
+    }
+    return r.json();
+  },
+  updateCustom: async (id: string, payload: Omit<CustomReminder, 'id' | 'created_at' | 'next_run_time'>): Promise<CustomReminder> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error updating custom reminder');
+    }
+    return r.json();
+  },
+  deleteCustom: async (id: string): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error deleting custom reminder');
+    }
+  },
+  testCustom: async (id: string): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}/test`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error sending custom reminder');
     }
   },
 };

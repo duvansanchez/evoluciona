@@ -119,9 +119,36 @@ def _build_period_report(db: Session, period_start: date, period_end: date) -> D
         })
         cursor += timedelta(days=1)
 
-    # --- Preguntas activas ---
+    # --- Preguntas activas + preguntas con actividad historica en el periodo ---
     questions = db.execute(
-        text("SELECT id, text, type, options, categoria FROM question WHERE active = 1")
+        text("""
+            SELECT q.id, q.text, q.type, q.options, q.categoria, q.active
+            FROM question q
+            WHERE q.active = 1
+               OR EXISTS (
+                    SELECT 1
+                    FROM response r
+                    WHERE r.question_id = q.id
+                      AND CAST(r.date AS DATE) >= :start
+                      AND CAST(r.date AS DATE) <= :end
+               )
+               OR EXISTS (
+                    SELECT 1
+                    FROM question_feedback f
+                    WHERE f.question_id = q.id
+                      AND f.fecha >= :start
+                      AND f.fecha <= :end
+               )
+               OR EXISTS (
+                    SELECT 1
+                    FROM question_skip_days s
+                    WHERE s.question_id = q.id
+                      AND s.fecha >= :start
+                      AND s.fecha <= :end
+               )
+            ORDER BY q.active DESC, q.id ASC
+        """),
+        {"start": period_start.isoformat(), "end": period_end.isoformat()}
     ).fetchall()
 
     # --- Respuestas del periodo ---
@@ -188,7 +215,7 @@ def _build_period_report(db: Session, period_start: date, period_end: date) -> D
     # --- Agregar estadisticas por pregunta ---
     question_stats = []
     for q in questions:
-        qid, qtext, qtype, qoptions, qcategory = q
+        qid, qtext, qtype, qoptions, qcategory, qactive = q
         q_responses = resp_by_question.get(qid, [])
         q_feedbacks = feedbacks_by_question.get(qid, [])
         q_skips = skips_by_question.get(qid, [])
@@ -199,6 +226,7 @@ def _build_period_report(db: Session, period_start: date, period_end: date) -> D
             "text": qtext,
             "type": qtype,
             "category": qcategory,
+            "is_currently_active": bool(qactive),
             "total_responses": total,
             "feedbacks": q_feedbacks,
             "feedback_count": len(q_feedbacks),

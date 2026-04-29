@@ -1,7 +1,36 @@
-import { useState, useEffect } from 'react';
-import { X, Sun, Sunset, Moon, Target } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Check, ChevronDown, GripVertical, X, Sun, Sunset, Moon, Target, Tag } from 'lucide-react';
 import type { Rutina, GoalSimple } from '@/services/api';
-import { rutinasAPI } from '@/services/api';
+import { goalsAPI, rutinasAPI } from '@/services/api';
+
+const RUTINA_CATEGORIAS = [
+  { value: 'Salud', emoji: '💪' },
+  { value: 'Trabajo', emoji: '💼' },
+  { value: 'Estudio', emoji: '📚' },
+  { value: 'Personal', emoji: '🌱' },
+  { value: 'Hogar', emoji: '🏠' },
+  { value: 'Deporte', emoji: '🏃' },
+  { value: 'Finanzas', emoji: '💰' },
+  { value: 'Bienestar', emoji: '🧘' },
+] as const;
+
+const CUSTOM_RUTINA_CATEGORIES_KEY = 'rutina_custom_categories_v1';
+
+const QUICK_GOAL_CATEGORIES = [
+  { value: 'daily', label: 'Diario' },
+  { value: 'weekly', label: 'Semanal' },
+  { value: 'monthly', label: 'Mensual' },
+  { value: 'yearly', label: 'Anual' },
+  { value: 'general', label: 'General' },
+] as const;
+
+const CATEGORY_TO_BACKEND: Record<string, string> = {
+  daily: 'diario',
+  weekly: 'semanal',
+  monthly: 'mensual',
+  yearly: 'anual',
+  general: 'general',
+};
 
 const PARTES_DIA = [
   { value: 'morning', label: 'Mañana', icon: Sun, color: 'text-amber-500' },
@@ -19,28 +48,110 @@ const COLORS = [
   { value: 'cyan', bg: 'bg-cyan-500', ring: 'ring-cyan-500' },
 ];
 
+const WEEK_DAYS = [
+  { value: 0, label: 'Lun' },
+  { value: 1, label: 'Mar' },
+  { value: 2, label: 'Mie' },
+  { value: 3, label: 'Jue' },
+  { value: 4, label: 'Vie' },
+  { value: 5, label: 'Sab' },
+  { value: 6, label: 'Dom' },
+] as const;
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   rutina?: Rutina | null;
   defaultParteDia?: string;
+  existingCategories?: string[];
   onSave: (data: {
     nombre: string;
     parte_dia: string;
     color?: string;
+    categoria?: string;
     descripcion?: string;
+    duracion_proyectada_minutos?: number;
+    dias_semana: number[];
     objetivoIds: number[];
   }) => Promise<void>;
 }
 
-export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDia, onSave }: Props) {
+export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDia, existingCategories = [], onSave }: Props) {
   const [nombre, setNombre] = useState('');
   const [parteDia, setParteDia] = useState<string>('morning');
   const [color, setColor] = useState<string>('blue');
+  const [categoria, setCategoria] = useState<string>('');
+  const [customCategoria, setCustomCategoria] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
   const [descripcion, setDescripcion] = useState('');
+  const [duracionProyectadaMinutos, setDuracionProyectadaMinutos] = useState<string>('');
+  const [diasSemana, setDiasSemana] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [availableGoals, setAvailableGoals] = useState<GoalSimple[]>([]);
-  const [selectedGoalIds, setSelectedGoalIds] = useState<Set<number>>(new Set());
+  const [selectedGoalIds, setSelectedGoalIds] = useState<number[]>([]);
+  const [quickGoalTitle, setQuickGoalTitle] = useState('');
+  const [quickGoalIcon, setQuickGoalIcon] = useState('');
+  const [quickGoalDescription, setQuickGoalDescription] = useState('');
+  const [quickGoalCategory, setQuickGoalCategory] = useState<string>('daily');
+  const [quickSubgoalTitle, setQuickSubgoalTitle] = useState('');
+  const [quickSubgoals, setQuickSubgoals] = useState<string[]>([]);
+  const [creatingGoal, setCreatingGoal] = useState(false);
+  const [goalCreateError, setGoalCreateError] = useState<string | null>(null);
+  const [isCreateGoalSectionOpen, setIsCreateGoalSectionOpen] = useState(true);
+  const [isLinkGoalsSectionOpen, setIsLinkGoalsSectionOpen] = useState(true);
+  const [draggingSelectedGoalId, setDraggingSelectedGoalId] = useState<number | null>(null);
+  const [dragOverSelectedGoalId, setDragOverSelectedGoalId] = useState<number | null>(null);
+  const [storedCustomCategories, setStoredCustomCategories] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_RUTINA_CATEGORIES_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0);
+    } catch {
+      return [];
+    }
+  });
+
+  const availableRutinaCategories = useMemo(() => {
+    const presetMap = new Map(RUTINA_CATEGORIAS.map(cat => [cat.value, cat.emoji]));
+    const normalizedPreset = new Set(RUTINA_CATEGORIAS.map(cat => cat.value.toLowerCase().trim()));
+
+    const mergedCustom = [...existingCategories, ...storedCustomCategories];
+
+    const custom = mergedCustom
+      .map(cat => cat.trim())
+      .filter(cat => cat.length > 0)
+      .filter(cat => !normalizedPreset.has(cat.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+      .map(value => ({ value, emoji: '🏷️' }));
+
+    return [
+      ...RUTINA_CATEGORIAS,
+      ...custom.filter(cat => !presetMap.has(cat.value)),
+    ];
+  }, [existingCategories, storedCustomCategories]);
+
+  const selectedGoalIdSet = useMemo(() => new Set(selectedGoalIds), [selectedGoalIds]);
+  const goalsById = useMemo(() => {
+    const map = new Map<number, GoalSimple>();
+    availableGoals.forEach(goal => map.set(goal.id, goal));
+    (rutina?.objetivos ?? []).forEach(goal => map.set(goal.id, goal));
+    return map;
+  }, [availableGoals, rutina]);
+
+  const selectedGoals = useMemo(
+    () => selectedGoalIds.map(goalId => goalsById.get(goalId)).filter((goal): goal is GoalSimple => Boolean(goal)),
+    [goalsById, selectedGoalIds],
+  );
+
+  const loadAvailableGoals = async () => {
+    const goals = await rutinasAPI.getRecurrenteGoals();
+    setAvailableGoals(goals);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -49,28 +160,176 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
       setParteDia(rutina.parte_dia);
       setColor(rutina.color || 'blue');
       setDescripcion(rutina.descripcion || '');
-      setSelectedGoalIds(new Set((rutina.objetivos ?? []).map(g => g.id)));
+      setDuracionProyectadaMinutos(rutina.duracion_proyectada_minutos ? String(rutina.duracion_proyectada_minutos) : '');
+      setDiasSemana(new Set(rutina.dias_semana ?? []));
+      setSelectedGoalIds((rutina.objetivos ?? []).map(g => g.id));
+      const cat = rutina.categoria || '';
+      const isKnown = availableRutinaCategories.some(c => c.value === cat);
+      if (isKnown) {
+        setCategoria(cat);
+        setCustomCategoria('');
+        setShowCustomInput(false);
+      } else if (cat) {
+        setCategoria('__custom__');
+        setCustomCategoria(cat);
+        setShowCustomInput(true);
+      } else {
+        setCategoria('');
+        setCustomCategoria('');
+        setShowCustomInput(false);
+      }
     } else {
       setNombre('');
       setParteDia(defaultParteDia || 'morning');
       setColor('blue');
+      setCategoria('');
+      setCustomCategoria('');
+      setShowCustomInput(false);
       setDescripcion('');
-      setSelectedGoalIds(new Set());
+      setDuracionProyectadaMinutos('');
+      setDiasSemana(new Set());
+      setSelectedGoalIds([]);
     }
-    rutinasAPI.getRecurrenteGoals().then(setAvailableGoals).catch(() => {});
-  }, [open, rutina]);
+    setQuickGoalTitle('');
+    setQuickGoalIcon('');
+    setQuickGoalDescription('');
+    setQuickGoalCategory('daily');
+    setQuickSubgoalTitle('');
+    setQuickSubgoals([]);
+    setGoalCreateError(null);
+    setIsCreateGoalSectionOpen(!rutina);
+    setIsLinkGoalsSectionOpen(true);
+    loadAvailableGoals().catch(() => {});
+  }, [open, rutina, defaultParteDia]);
+
+  const sortedAvailableGoals = [...availableGoals].sort((a, b) => {
+    const aSelectedIndex = selectedGoalIds.indexOf(a.id);
+    const bSelectedIndex = selectedGoalIds.indexOf(b.id);
+    const aSelected = aSelectedIndex !== -1;
+    const bSelected = bSelectedIndex !== -1;
+    if (aSelected && bSelected) return aSelectedIndex - bSelectedIndex;
+    if (aSelected !== bSelected) return aSelected ? -1 : 1;
+
+    const aMatches = a.parte_dia === parteDia ? 1 : 0;
+    const bMatches = b.parte_dia === parteDia ? 1 : 0;
+    if (aMatches !== bMatches) return bMatches - aMatches;
+    return a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base' });
+  });
+
+  const addQuickSubgoal = () => {
+    const title = quickSubgoalTitle.trim();
+    if (!title) return;
+    setQuickSubgoals(prev => [...prev, title]);
+    setQuickSubgoalTitle('');
+  };
+
+  const moveSelectedGoal = (draggedGoalId: number, targetGoalId: number) => {
+    if (draggedGoalId === targetGoalId) return;
+    setSelectedGoalIds(prev => {
+      const from = prev.indexOf(draggedGoalId);
+      const to = prev.indexOf(targetGoalId);
+      if (from === -1 || to === -1) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  };
+
+  const resetQuickGoalForm = () => {
+    setQuickGoalTitle('');
+    setQuickGoalIcon('');
+    setQuickGoalDescription('');
+    setQuickGoalCategory('daily');
+    setQuickSubgoalTitle('');
+    setQuickSubgoals([]);
+  };
+
+  const handleCreateQuickGoal = async (keepTyping = false) => {
+    if (!quickGoalTitle.trim()) return;
+
+    setCreatingGoal(true);
+    setGoalCreateError(null);
+    try {
+      const createdGoal = await goalsAPI.createGoal({
+        title: quickGoalTitle.trim(),
+        icono: quickGoalIcon.trim() || undefined,
+        descripcion: quickGoalDescription.trim() || undefined,
+        categoria: CATEGORY_TO_BACKEND[quickGoalCategory] || 'diario',
+        recurrente: true,
+        parte_dia: parteDia,
+      });
+
+      if (quickSubgoals.length > 0) {
+        await Promise.all(
+          quickSubgoals.map((title, index) =>
+            goalsAPI.createSubGoal(createdGoal.id, {
+              titulo: title,
+              completado: false,
+              orden: index,
+            })
+          )
+        );
+      }
+
+      await loadAvailableGoals();
+      setSelectedGoalIds(prev => {
+        const parsedId = Number(createdGoal.id);
+        if (prev.includes(parsedId)) return prev;
+        return [...prev, parsedId];
+      });
+      if (!keepTyping) {
+        resetQuickGoalForm();
+      } else {
+        setQuickGoalTitle('');
+        setQuickGoalDescription('');
+        setQuickSubgoalTitle('');
+        setQuickSubgoals([]);
+      }
+    } catch (error) {
+      setGoalCreateError(error instanceof Error ? error.message : 'No se pudo crear el objetivo recurrente.');
+    } finally {
+      setCreatingGoal(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!nombre.trim()) return;
     setSaving(true);
+    const resolvedCategoria = categoria === '__custom__'
+      ? customCategoria.trim() || undefined
+      : categoria || undefined;
+    const parsedProjectedDuration = Number.parseInt(duracionProyectadaMinutos, 10);
+    const resolvedProjectedDuration = Number.isNaN(parsedProjectedDuration) || parsedProjectedDuration <= 0
+      ? undefined
+      : parsedProjectedDuration;
     try {
       await onSave({
         nombre: nombre.trim(),
         parte_dia: parteDia,
         color,
+        categoria: resolvedCategoria,
         descripcion: descripcion.trim() || undefined,
-        objetivoIds: Array.from(selectedGoalIds),
+        duracion_proyectada_minutos: resolvedProjectedDuration,
+        dias_semana: Array.from(diasSemana).sort((a, b) => a - b),
+        objetivoIds: selectedGoalIds,
       });
+
+      if (resolvedCategoria) {
+        const isPreset = RUTINA_CATEGORIAS.some(cat => cat.value.toLowerCase() === resolvedCategoria.toLowerCase());
+        if (!isPreset) {
+          setStoredCustomCategories(prev => {
+            const merged = Array.from(new Set([...prev, resolvedCategoria])).sort((a, b) =>
+              a.localeCompare(b, 'es', { sensitivity: 'base' })
+            );
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem(CUSTOM_RUTINA_CATEGORIES_KEY, JSON.stringify(merged));
+            }
+            return merged;
+          });
+        }
+      }
+
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -153,6 +412,77 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
               </div>
             </div>
 
+            {/* Categoría */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block flex items-center gap-1.5">
+                <Tag className="h-3 w-3" />
+                Categoría (opcional)
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {availableRutinaCategories.map(cat => (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => {
+                      setCategoria(cat.value);
+                      setShowCustomInput(false);
+                      setCustomCategoria('');
+                    }}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                      categoria === cat.value
+                        ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-300 shadow-sm ring-2 ring-emerald-400/40 scale-[1.02]'
+                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                    }`}
+                    aria-pressed={categoria === cat.value}
+                  >
+                    <span>{cat.emoji}</span>
+                    {cat.value}
+                    {categoria === cat.value && <Check className="h-3 w-3" />}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCategoria('__custom__');
+                    setShowCustomInput(true);
+                  }}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                    categoria === '__custom__'
+                      ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-300 shadow-sm ring-2 ring-emerald-400/40 scale-[1.02]'
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                  }`}
+                  aria-pressed={categoria === '__custom__'}
+                >
+                  ✏️ Otra
+                  {categoria === '__custom__' && <Check className="h-3 w-3" />}
+                </button>
+                {categoria && (
+                  <button
+                    type="button"
+                    onClick={() => { setCategoria(''); setCustomCategoria(''); setShowCustomInput(false); }}
+                    className="flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    ✕ Sin categoría
+                  </button>
+                )}
+              </div>
+              <p className={`mt-2 text-[11px] font-medium ${categoria ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                {categoria
+                  ? `Seleccionada: ${categoria === '__custom__' ? (customCategoria.trim() || 'Personalizada') : categoria}`
+                  : 'Seleccionada: Ninguna'}
+              </p>
+              {showCustomInput && (
+                <input
+                  type="text"
+                  value={customCategoria}
+                  onChange={e => setCustomCategoria(e.target.value)}
+                  placeholder="Ej: Meditación, Arte, Idiomas..."
+                  maxLength={50}
+                  className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              )}
+            </div>
+
             {/* Descripción */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
@@ -166,50 +496,322 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                 className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
               />
             </div>
-          </section>
 
-          {/* Objetivos recurrentes */}
-          {availableGoals.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Target className="h-3.5 w-3.5 text-muted-foreground" />
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Objetivos recurrentes
-                </h3>
-              </div>
-              <div className="space-y-1 max-h-40 overflow-y-auto rounded-xl border border-border bg-background p-2">
-                {availableGoals.map(g => {
-                  const checked = selectedGoalIds.has(g.id);
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
+                Tiempo proyectado (minutos)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                step={1}
+                value={duracionProyectadaMinutos}
+                onChange={e => {
+                  const rawValue = e.target.value.trim();
+                  if (!rawValue) {
+                    setDuracionProyectadaMinutos('');
+                    return;
+                  }
+                  const numericValue = Number.parseInt(rawValue, 10);
+                  if (Number.isNaN(numericValue)) return;
+                  const normalized = Math.min(1440, Math.max(1, numericValue));
+                  setDuracionProyectadaMinutos(String(normalized));
+                }}
+                placeholder="Ej: 45"
+                className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Estimación de cuánto tiempo debería tomarte esta rutina completa.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 block">
+                Repetir todas las semanas
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {WEEK_DAYS.map(day => {
+                  const selected = diasSemana.has(day.value);
                   return (
-                    <label
-                      key={g.id}
-                      className="flex items-center gap-3 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-muted transition-colors"
+                    <button
+                      key={day.value}
+                      type="button"
+                      onClick={() => {
+                        setDiasSemana(prev => {
+                          const next = new Set(prev);
+                          if (next.has(day.value)) next.delete(day.value);
+                          else next.add(day.value);
+                          return next;
+                        });
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${selected ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'}`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          setSelectedGoalIds(prev => {
-                            const next = new Set(prev);
-                            checked ? next.delete(g.id) : next.add(g.id);
-                            return next;
-                          });
-                        }}
-                        className="rounded border-border"
-                      />
-                      <span className="text-sm flex-shrink-0">{g.icono || '🎯'}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{g.titulo}</p>
-                        {g.frecuencia && (
-                          <p className="text-[10px] text-muted-foreground capitalize">{g.frecuencia}</p>
-                        )}
-                      </div>
-                    </label>
+                      {day.label}
+                    </button>
                   );
                 })}
               </div>
-            </section>
-          )}
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Si marcas dias, esta rutina aparecera automaticamente cada semana en esos dias.
+              </p>
+            </div>
+          </section>
+
+          {/* Objetivos recurrentes */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Target className="h-3.5 w-3.5 text-muted-foreground" />
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Objetivos recurrentes
+              </h3>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background p-3 space-y-3">
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateGoalSectionOpen(prev => !prev)}
+                    className="inline-flex items-center gap-2 text-left"
+                    aria-expanded={isCreateGoalSectionOpen}
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 text-primary transition-transform ${isCreateGoalSectionOpen ? 'rotate-0' : '-rotate-90'}`} />
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Crear nuevo objetivo</p>
+                  </button>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">Se vincula a esta rutina</span>
+                </div>
+
+                {isCreateGoalSectionOpen && (
+                  <>
+                <div className="grid gap-2 sm:grid-cols-[88px_1fr_auto]">
+                  <input
+                    type="text"
+                    value={quickGoalIcon}
+                    onChange={e => setQuickGoalIcon(e.target.value)}
+                    placeholder="🎯"
+                    maxLength={4}
+                    className="rounded-xl border border-border bg-background px-3 py-2.5 text-center text-lg text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <input
+                    type="text"
+                    value={quickGoalTitle}
+                    onChange={e => setQuickGoalTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void handleCreateQuickGoal(); }}
+                    placeholder="Crear objetivo recurrente y vincularlo"
+                    className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateQuickGoal()}
+                    disabled={creatingGoal || !quickGoalTitle.trim()}
+                    className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {creatingGoal ? 'Creando...' : 'Crear'}
+                  </button>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-[180px_1fr]">
+                  <select
+                    value={quickGoalCategory}
+                    onChange={e => setQuickGoalCategory(e.target.value)}
+                    className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    {QUICK_GOAL_CATEGORIES.map(category => (
+                      <option key={category.value} value={category.value}>{category.label}</option>
+                    ))}
+                  </select>
+
+                  <textarea
+                    value={quickGoalDescription}
+                    onChange={e => setQuickGoalDescription(e.target.value)}
+                    placeholder="Descripción rápida opcional"
+                    rows={2}
+                    className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  />
+                </div>
+
+                <div className="space-y-2 rounded-xl border border-border bg-background/70 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Subobjetivos rápidos</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={quickSubgoalTitle}
+                      onChange={e => setQuickSubgoalTitle(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addQuickSubgoal(); } }}
+                      placeholder="Agregar subobjetivo"
+                      className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={addQuickSubgoal}
+                      disabled={!quickSubgoalTitle.trim()}
+                      className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                    >
+                      Agregar
+                    </button>
+                  </div>
+
+                  {quickSubgoals.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {quickSubgoals.map((subgoal, index) => (
+                        <span
+                          key={`${subgoal}-${index}`}
+                          className="inline-flex items-center gap-2 rounded-full bg-background px-3 py-1 text-xs text-foreground border border-border"
+                        >
+                          {subgoal}
+                          <button
+                            type="button"
+                            onClick={() => setQuickSubgoals(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-muted-foreground">
+                  Enter en el titulo crea el objetivo. Se guarda como recurrente, con la misma parte del dia de la rutina, queda seleccionado automaticamente y puede llevar subobjetivos desde aqui mismo.
+                </p>
+
+                {goalCreateError && (
+                  <p className="text-xs text-destructive">{goalCreateError}</p>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateQuickGoal(true)}
+                    disabled={creatingGoal || !quickGoalTitle.trim()}
+                    className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {creatingGoal ? 'Creando...' : 'Crear y seguir'}
+                  </button>
+                </div>
+                  </>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsLinkGoalsSectionOpen(prev => !prev)}
+                    className="inline-flex items-center gap-2 text-left"
+                    aria-expanded={isLinkGoalsSectionOpen}
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isLinkGoalsSectionOpen ? 'rotate-0' : '-rotate-90'}`} />
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Vincular objetivos ya creados</p>
+                  </button>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Seleccionados: {selectedGoalIds.length}</span>
+                </div>
+
+                {isLinkGoalsSectionOpen ? (
+                  <>
+                    {selectedGoals.length > 0 && (
+                      <div className="space-y-1 rounded-xl border border-primary/30 bg-primary/5 p-2">
+                        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          Orden en rutina (arrastra y suelta)
+                        </p>
+                        {selectedGoals.map(goal => {
+                          const isDragOver = dragOverSelectedGoalId === goal.id && draggingSelectedGoalId !== goal.id;
+                          return (
+                            <div
+                              key={`selected-${goal.id}`}
+                              draggable
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = 'move';
+                                event.dataTransfer.setData('text/plain', String(goal.id));
+                                setDraggingSelectedGoalId(goal.id);
+                              }}
+                              onDragOver={(event) => {
+                                event.preventDefault();
+                                if (draggingSelectedGoalId && draggingSelectedGoalId !== goal.id) {
+                                  setDragOverSelectedGoalId(goal.id);
+                                }
+                              }}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                const droppedId = Number(event.dataTransfer.getData('text/plain'));
+                                const draggedId = Number.isFinite(droppedId) && droppedId > 0
+                                  ? droppedId
+                                  : draggingSelectedGoalId;
+                                if (draggedId) {
+                                  moveSelectedGoal(draggedId, goal.id);
+                                }
+                                setDraggingSelectedGoalId(null);
+                                setDragOverSelectedGoalId(null);
+                              }}
+                              onDragEnd={() => {
+                                setDraggingSelectedGoalId(null);
+                                setDragOverSelectedGoalId(null);
+                              }}
+                              className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors ${
+                                isDragOver
+                                  ? 'border-primary bg-primary/10'
+                                  : 'border-border bg-background hover:bg-muted'
+                              } ${draggingSelectedGoalId === goal.id ? 'opacity-60' : ''}`}
+                            >
+                              <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span className="text-sm flex-shrink-0">{goal.icono || '🎯'}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-foreground truncate">{goal.titulo}</p>
+                                {(goal.frecuencia || goal.parte_dia) && (
+                                  <p className="text-[10px] text-muted-foreground capitalize">
+                                    {[goal.frecuencia, goal.parte_dia === 'morning' ? 'mañana' : goal.parte_dia === 'afternoon' ? 'tarde' : goal.parte_dia === 'evening' ? 'noche' : null].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {availableGoals.length > 0 ? (
+                      <div className="space-y-1 max-h-40 overflow-y-auto rounded-xl border border-border bg-background p-2">
+                        {sortedAvailableGoals.map(g => {
+                          const checked = selectedGoalIdSet.has(g.id);
+                          return (
+                            <label
+                              key={g.id}
+                              className="flex items-center gap-3 rounded-lg px-2 py-1.5 cursor-pointer hover:bg-muted transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setSelectedGoalIds(prev => {
+                                    if (checked) return prev.filter(id => id !== g.id);
+                                    return [...prev, g.id];
+                                  });
+                                }}
+                                className="rounded border-border"
+                              />
+                              <span className="text-sm flex-shrink-0">{g.icono || '🎯'}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-foreground truncate">{g.titulo}</p>
+                                {(g.frecuencia || g.parte_dia) && (
+                                  <p className="text-[10px] text-muted-foreground capitalize">
+                                    {[g.frecuencia, g.parte_dia === 'morning' ? 'mañana' : g.parte_dia === 'afternoon' ? 'tarde' : g.parte_dia === 'evening' ? 'noche' : null].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">No hay objetivos recurrentes creados todavia.</p>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </section>
 
         </div>
 

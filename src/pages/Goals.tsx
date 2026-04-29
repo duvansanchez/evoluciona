@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Circle, Eye, Grid3X3, History, List, Plus, SkipForward, Target, TrendingUp, Sun, Sunset, Moon } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import GoalCard from '@/components/goals/GoalCard';
 import GoalModal from '@/components/goals/GoalModal';
 import GoalFocusModal from '@/components/goals/GoalFocusModal';
 import FocusModal from '@/components/goals/FocusModal';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { goalFoldersAPI, goalsAPI, rutinasAPI } from '@/services/api';
 import type { Goal, GoalCategory, GoalFolder, SubGoal } from '@/types';
 import type { Rutina, RutinaAsignacion } from '@/services/api';
@@ -155,8 +156,12 @@ const COLOR_DOT: Record<string, string> = {
   purple: 'bg-purple-500', red: 'bg-red-500', pink: 'bg-pink-500', cyan: 'bg-cyan-500',
 };
 
+type SkipModalTarget =
+  | { type: 'goal'; id: string }
+  | { type: 'subgoal'; id: string };
+
 export default function Goals() {
-  const todayKey = getLocalDateString();
+  const [todayKey, setTodayKey] = useState<string>(() => getLocalDateString());
   const [activeTab, setActiveTab] = useState<GoalCategory | 'all' | 'historicos'>('daily');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [todayAsignaciones, setTodayAsignaciones] = useState<RutinaAsignacion[]>([]);
@@ -172,9 +177,15 @@ export default function Goals() {
   const [allGoalsMapped, setAllGoalsMapped] = useState<Goal[]>([]);
   const [historicSubgoalsLoaded, setHistoricSubgoalsLoaded] = useState(false);
   const [skippedGoalIds, setSkippedGoalIds] = useState<Set<string>>(new Set());
+  const [skipReasonByGoalId, setSkipReasonByGoalId] = useState<Record<string, string>>({});
+  const [skippedSubGoalIds, setSkippedSubGoalIds] = useState<Set<string>>(new Set());
+  const [skipReasonBySubGoalId, setSkipReasonBySubGoalId] = useState<Record<string, string>>({});
   const [showSkipped, setShowSkipped] = useState(false);
   const [folders, setFolders] = useState<GoalFolder[]>([]);
   const [rutinasCatalog, setRutinasCatalog] = useState<Rutina[]>([]);
+  const [skipModalTarget, setSkipModalTarget] = useState<SkipModalTarget | null>(null);
+  const [skipModalStep, setSkipModalStep] = useState<'choice' | 'reason'>('choice');
+  const [skipReasonInput, setSkipReasonInput] = useState('');
 
   // Cargar objetivos del backend
   const loadGoals = async () => {
@@ -268,17 +279,99 @@ export default function Goals() {
       }
   };
 
+  const refreshSkipStateForToday = useCallback(async () => {
+    try {
+      const [skippedGoalIdsRaw, skippedGoalDetails, skippedSubGoalIdsRaw, skippedSubGoalDetails] = await Promise.all([
+        goalsAPI.getSkippedGoals(todayKey),
+        goalsAPI.getSkippedGoalsDetails(todayKey),
+        goalsAPI.getSkippedSubGoals(todayKey),
+        goalsAPI.getSkippedSubGoalsDetails(todayKey),
+      ]);
+
+      setSkippedGoalIds(new Set(skippedGoalIdsRaw.map(id => id.toString())));
+      const goalReasonMap: Record<string, string> = {};
+      skippedGoalDetails.forEach(entry => {
+        if (entry.reason) goalReasonMap[entry.goal_id.toString()] = entry.reason;
+      });
+      setSkipReasonByGoalId(goalReasonMap);
+
+      setSkippedSubGoalIds(new Set(skippedSubGoalIdsRaw.map(id => id.toString())));
+      const subGoalReasonMap: Record<string, string> = {};
+      skippedSubGoalDetails.forEach(entry => {
+        if (entry.reason) subGoalReasonMap[entry.subgoal_id.toString()] = entry.reason;
+      });
+      setSkipReasonBySubGoalId(subGoalReasonMap);
+    } catch (error) {
+      console.error('Error refreshing skipped state:', error);
+    }
+  }, [todayKey]);
+
+  useEffect(() => {
+    const syncTodayKey = () => {
+      const next = getLocalDateString();
+      setTodayKey(prev => (prev === next ? prev : next));
+    };
+
+    syncTodayKey();
+    const intervalId = window.setInterval(syncTodayKey, 60_000);
+    window.addEventListener('focus', syncTodayKey);
+    document.addEventListener('visibilitychange', syncTodayKey);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', syncTodayKey);
+      document.removeEventListener('visibilitychange', syncTodayKey);
+    };
+  }, []);
+
   useEffect(() => {
     loadGoals();
+  }, [todayKey]);
+
+  useEffect(() => {
     rutinasAPI.getRutinas().then(setRutinasCatalog).catch(() => {});
     goalFoldersAPI.getFolders().then(setFolders).catch(() => {});
   }, []);
 
   useEffect(() => {
-    goalsAPI.getSkippedGoals(todayKey)
-      .then(ids => setSkippedGoalIds(new Set(ids.map(id => id.toString()))))
-      .catch(error => console.error('Error loading skipped goals:', error));
-  }, [todayKey]);
+    void refreshSkipStateForToday();
+  }, [refreshSkipStateForToday]);
+
+  useEffect(() => {
+    if (goals.length === 0) return;
+    void refreshSkipStateForToday();
+  }, [goals.length, refreshSkipStateForToday]);
+
+  useEffect(() => {
+    setGoals(prev => prev.map(goal => ({
+      ...goal,
+      skippedReason: skipReasonByGoalId[goal.id],
+    })));
+    setAllGoalsMapped(prev => prev.map(goal => ({
+      ...goal,
+      skippedReason: skipReasonByGoalId[goal.id],
+    })));
+  }, [skipReasonByGoalId]);
+
+  useEffect(() => {
+    setGoals(prev => prev.map(goal => ({
+      ...goal,
+      subGoals: goal.subGoals.map(subGoal => ({
+        ...subGoal,
+        skipped: skippedSubGoalIds.has(subGoal.id),
+        skippedReason: skipReasonBySubGoalId[subGoal.id],
+      })),
+    })));
+
+    setAllGoalsMapped(prev => prev.map(goal => ({
+      ...goal,
+      subGoals: goal.subGoals.map(subGoal => ({
+        ...subGoal,
+        skipped: skippedSubGoalIds.has(subGoal.id),
+        skippedReason: skipReasonBySubGoalId[subGoal.id],
+      })),
+    })));
+  }, [skippedSubGoalIds, skipReasonBySubGoalId]);
 
   const loadTodayAsignaciones = async () => {
     try {
@@ -353,6 +446,7 @@ export default function Goals() {
   }, []);
 
   const isGoalSkippedToday = (goal: Goal) => goal.recurring && skippedGoalIds.has(goal.id);
+  const isSubGoalSkippedToday = (subGoalId: string) => skippedSubGoalIds.has(subGoalId);
 
   const getRutinasVinculadas = (goalId: string) =>
     rutinasCatalog.filter(r => (r.objetivos ?? []).some(o => o.id.toString() === goalId));
@@ -486,6 +580,22 @@ export default function Goals() {
   const handleCreate = () => {
     setEditingGoal(null);
     setModalOpen(true);
+  };
+
+  const handleRegisterCompletionForDate = async (goal: Goal, date: string) => {
+    if (goal.recurring) {
+      await goalsAPI.completeGoalForDate(goal.id, date);
+    } else {
+      await goalsAPI.updateGoal(goal.id, {
+        completado: true,
+        fecha_completado: `${date}T23:59:59`,
+      });
+    }
+
+    await loadGoals();
+    if (date === todayKey) {
+      await loadTodayAsignaciones();
+    }
   };
 
   const handleSave = async (data: any) => {
@@ -841,11 +951,20 @@ export default function Goals() {
     void persistSubGoalUpdate(subGoalId, { completed: true });
   };
 
-  const handleSkipGoalToday = (id: string) => {
-    const goal = goals.find(g => g.id === id);
-    if (!goal?.recurring) return;
+  const openSkipModal = (target: SkipModalTarget) => {
+    setSkipModalTarget(target);
+    setSkipModalStep('choice');
+    setSkipReasonInput('');
+  };
 
-    const isCurrentlySkipped = skippedGoalIds.has(id);
+  const closeSkipModal = () => {
+    setSkipModalTarget(null);
+    setSkipModalStep('choice');
+    setSkipReasonInput('');
+  };
+
+  const toggleGoalSkipToday = (id: string, isCurrentlySkipped: boolean, reason?: string) => {
+    const previousReason = skipReasonByGoalId[id];
     const next = new Set(skippedGoalIds);
     if (isCurrentlySkipped) {
       next.delete(id);
@@ -854,28 +973,151 @@ export default function Goals() {
     }
 
     setSkippedGoalIds(next);
+    setSkipReasonByGoalId(prev => {
+      const nextReasons = { ...prev };
+      if (isCurrentlySkipped) {
+        delete nextReasons[id];
+      } else if (reason) {
+        nextReasons[id] = reason;
+      }
+      return nextReasons;
+    });
     syncRutinaCompletionForGoal(id, goals, next);
 
     const request = isCurrentlySkipped
       ? goalsAPI.unskipGoalForDate(id, todayKey)
-      : goalsAPI.skipGoalForDate(id, todayKey);
+      : goalsAPI.skipGoalForDate(id, todayKey, reason);
 
-    void request.catch(error => {
-      console.error('Error toggling skipped goal:', error);
-      setSkippedGoalIds(prev => {
-        const rollback = new Set(prev);
-        if (isCurrentlySkipped) {
-          rollback.add(id);
-        } else {
-          rollback.delete(id);
-        }
-        return rollback;
+    void request
+      .then(() => {
+        void refreshSkipStateForToday();
+      })
+      .catch(error => {
+        console.error('Error toggling skipped goal:', error);
+        alert(`No se pudo guardar el salto del objetivo en backend: ${error instanceof Error ? error.message : String(error)}`);
+        setSkippedGoalIds(prev => {
+          const rollback = new Set(prev);
+          if (isCurrentlySkipped) {
+            rollback.add(id);
+          } else {
+            rollback.delete(id);
+          }
+          return rollback;
+        });
+        setSkipReasonByGoalId(prev => {
+          const rollback = { ...prev };
+          if (isCurrentlySkipped) {
+            if (previousReason) rollback[id] = previousReason;
+          } else {
+            delete rollback[id];
+          }
+          return rollback;
+        });
+        syncRutinaCompletionForGoal(id, goals, skippedGoalIds);
       });
-      syncRutinaCompletionForGoal(id, goals, skippedGoalIds);
+  };
+
+  const toggleSubGoalSkipToday = (subGoalId: string, isCurrentlySkipped: boolean, reason?: string) => {
+    const previousReason = skipReasonBySubGoalId[subGoalId];
+    const parentGoal = goals.find(goal => goal.subGoals.some(sub => sub.id === subGoalId));
+    const next = new Set(skippedSubGoalIds);
+    if (isCurrentlySkipped) {
+      next.delete(subGoalId);
+    } else {
+      next.add(subGoalId);
+    }
+
+    const shouldAutoSkipParentGoal =
+      !isCurrentlySkipped &&
+      !!parentGoal?.recurring &&
+      !!parentGoal?.subGoals.length &&
+      parentGoal.subGoals.every(sub => next.has(sub.id)) &&
+      !!parentGoal &&
+      !skippedGoalIds.has(parentGoal.id);
+
+    setSkippedSubGoalIds(next);
+    setSkipReasonBySubGoalId(prev => {
+      const nextReasons = { ...prev };
+      if (isCurrentlySkipped) {
+        delete nextReasons[subGoalId];
+      } else if (reason) {
+        nextReasons[subGoalId] = reason;
+      }
+      return nextReasons;
     });
+    setGoals(prev => prev.map(g => ({
+      ...g,
+      subGoals: g.subGoals.map(s => s.id === subGoalId ? { ...s, skipped: !isCurrentlySkipped, skippedReason: !isCurrentlySkipped ? reason : undefined } : s),
+    })));
+
+    const request = isCurrentlySkipped
+      ? goalsAPI.unskipSubGoalForDate(subGoalId, todayKey)
+      : goalsAPI.skipSubGoalForDate(subGoalId, todayKey, reason);
+
+    void request
+      .then(() => {
+        void refreshSkipStateForToday();
+        if (shouldAutoSkipParentGoal && parentGoal) {
+          toggleGoalSkipToday(parentGoal.id, false, 'Auto-saltado: todos los subobjetivos fueron saltados.');
+        }
+      })
+      .catch(error => {
+        console.error('Error toggling skipped subgoal:', error);
+        alert(`No se pudo guardar el salto del subobjetivo en backend: ${error instanceof Error ? error.message : String(error)}`);
+        setSkippedSubGoalIds(prev => {
+          const rollback = new Set(prev);
+          if (isCurrentlySkipped) {
+            rollback.add(subGoalId);
+          } else {
+            rollback.delete(subGoalId);
+          }
+          return rollback;
+        });
+        setGoals(prev => prev.map(g => ({
+          ...g,
+          subGoals: g.subGoals.map(s => s.id === subGoalId ? { ...s, skipped: isCurrentlySkipped, skippedReason: isCurrentlySkipped ? previousReason : undefined } : s),
+        })));
+        setSkipReasonBySubGoalId(prev => {
+          const rollback = { ...prev };
+          if (isCurrentlySkipped) {
+            if (previousReason) rollback[subGoalId] = previousReason;
+          } else {
+            delete rollback[subGoalId];
+          }
+          return rollback;
+        });
+      });
+  };
+
+  const handleConfirmSkipFromModal = () => {
+    if (!skipModalTarget) return;
+    const reason = skipReasonInput.trim() || undefined;
+
+    if (skipModalTarget.type === 'goal') {
+      toggleGoalSkipToday(skipModalTarget.id, false, reason);
+    } else {
+      toggleSubGoalSkipToday(skipModalTarget.id, false, reason);
+    }
+
+    closeSkipModal();
+  };
+
+  const handleSkipGoalToday = (id: string) => {
+    const goal = goals.find(g => g.id === id);
+    if (!goal?.recurring) return;
+
+    const isCurrentlySkipped = skippedGoalIds.has(id);
+    if (!isCurrentlySkipped) {
+      openSkipModal({ type: 'goal', id });
+      return;
+    }
+
+    toggleGoalSkipToday(id, true);
   };
 
   const handleToggleSubGoal = (subGoalId: string) => {
+    if (skippedSubGoalIds.has(subGoalId)) return;
+
     setGoals(prev => prev.map(g => ({
       ...g,
       subGoals: g.subGoals.map(s => {
@@ -900,6 +1142,19 @@ export default function Goals() {
     if (subGoal) {
       void persistSubGoalUpdate(subGoalId, { completed: !subGoal.completed });
     }
+  };
+
+  const handleSkipSubGoalToday = (subGoalId: string) => {
+    const subGoal = goals.flatMap(g => g.subGoals).find(s => s.id === subGoalId);
+    if (!subGoal) return;
+
+    const isCurrentlySkipped = skippedSubGoalIds.has(subGoalId);
+    if (!isCurrentlySkipped) {
+      openSkipModal({ type: 'subgoal', id: subGoalId });
+      return;
+    }
+
+    toggleSubGoalSkipToday(subGoalId, true);
   };
 
   const visibleGoals = (showSkipped
@@ -1037,7 +1292,18 @@ export default function Goals() {
         (() => {
           // Construir grupos de rutinas activas hoy
           const seenGoalIds = new Set<string>();
-          const rutinaGroups = todayAsignaciones
+          const dayPartOrder: Record<string, number> = {
+            morning: 0,
+            afternoon: 1,
+            evening: 2,
+          };
+
+          const rutinaGroups = [...todayAsignaciones]
+            .sort((a, b) => {
+              const partDiff = (dayPartOrder[a.parte_dia] ?? 99) - (dayPartOrder[b.parte_dia] ?? 99);
+              if (partDiff !== 0) return partDiff;
+              return a.rutina.nombre.localeCompare(b.rutina.nombre, 'es', { sensitivity: 'base' });
+            })
             .map(asig => {
               const goalsInRutina = sorted.filter(g =>
                 asig.rutina.objetivos.some(o => o.id.toString() === g.id)
@@ -1063,6 +1329,7 @@ export default function Goals() {
             onFocusGoal: handleOpenGoalFocus,
             onDelete: handleDeleteGoal,
             onToggleSubGoal: handleToggleSubGoal,
+            onSkipSubGoalToday: handleSkipSubGoalToday,
             onSkipToday: handleSkipGoalToday,
           });
 
@@ -1143,6 +1410,7 @@ export default function Goals() {
                         onFocusGoal={handleOpenGoalFocus}
                         onDelete={handleDeleteGoal}
                         onToggleSubGoal={handleToggleSubGoal}
+                        onSkipSubGoalToday={handleSkipSubGoalToday}
                         onMakeCurrent={!goal.recurring ? handleMakeCurrent : undefined}
                       />
                     ))}
@@ -1163,6 +1431,7 @@ export default function Goals() {
         folders={folders}
         onFoldersChange={setFolders}
         onSave={handleSave}
+        onRegisterCompletionForDate={handleRegisterCompletionForDate}
       />
 
       <GoalFocusModal
@@ -1222,6 +1491,66 @@ export default function Goals() {
         onSave={handleSaveFocusProgress}
         onComplete={handleCompleteSubGoal}
       />
+
+      <Dialog open={skipModalTarget !== null} onOpenChange={(open) => !open && closeSkipModal()}>
+        <DialogContent className="max-w-md border-border bg-background p-0 text-foreground sm:rounded-2xl">
+          <div className="h-1.5 w-full rounded-t-2xl bg-gradient-to-r from-primary/70 via-primary to-primary/70" />
+          <div className="space-y-4 p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">¿Quieres explicar por qué lo saltas?</DialogTitle>
+            <DialogDescription>
+              {skipModalTarget?.type === 'subgoal'
+                ? 'Puedes saltar este subobjetivo directamente o dejar un motivo opcional para el informe.'
+                : 'Puedes saltar este objetivo directamente o dejar un motivo opcional para el informe.'}
+            </DialogDescription>
+          </DialogHeader>
+
+            {skipModalStep === 'choice' ? (
+              <div className="space-y-2">
+                <button
+                  onClick={handleConfirmSkipFromModal}
+                  className="w-full rounded-xl border border-border bg-card px-3 py-3 text-left text-sm transition-colors hover:bg-accent"
+                >
+                  <div className="font-medium text-foreground">Saltar sin explicar</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">No se guarda ningún motivo.</div>
+                </button>
+                <button
+                  onClick={() => setSkipModalStep('reason')}
+                  className="w-full rounded-xl border border-primary/20 bg-primary/5 px-3 py-3 text-left text-sm transition-colors hover:bg-primary/10"
+                >
+                  <div className="font-medium text-foreground">Sí, explicar</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">Añade un motivo breve para registrarlo hoy.</div>
+                </button>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={skipReasonInput}
+                  onChange={(e) => setSkipReasonInput(e.target.value)}
+                  placeholder="Cuéntame por qué lo saltas (opcional)"
+                  rows={4}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <div className="text-right text-[11px] text-muted-foreground">{skipReasonInput.trim().length}/280</div>
+                <DialogFooter>
+                  <button
+                    onClick={() => setSkipModalStep('choice')}
+                    className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    onClick={handleConfirmSkipFromModal}
+                    className="inline-flex items-center justify-center rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    Guardar y saltar
+                  </button>
+                </DialogFooter>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

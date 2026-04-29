@@ -106,6 +106,7 @@ class GoalSkipDay(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     objetivo_id = Column(Integer, ForeignKey("objetivos.id"), nullable=False)
     fecha = Column(String(10), nullable=False)  # YYYY-MM-DD
+    motivo = Column(Text, nullable=True)
     fecha_creacion = Column(DateTime, nullable=True, default=datetime.now)
 
     goal = relationship("Goal", back_populates="skip_days")
@@ -332,7 +333,10 @@ class Rutina(Base):
     nombre = Column(String(255), nullable=False)
     parte_dia = Column(String(20), nullable=False)  # morning | afternoon | evening
     color = Column(String(30), nullable=True)
+    categoria = Column(String(100), nullable=True)
     descripcion = Column(Text, nullable=True)
+    duracion_proyectada_minutos = Column(Integer, nullable=True)
+    dias_semana = Column(Text, nullable=True)  # JSON: [0..6] where 0 = lunes
     activa = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, nullable=True)
 
@@ -368,6 +372,7 @@ class RutinaAsignacion(Base):
     parte_dia = Column(String(20), nullable=False)
     rutina_id = Column(Integer, ForeignKey("rutinas.id"), nullable=False)
     completada = Column(Boolean, default=False)
+    es_automatica = Column(Boolean, default=False)
     objetivo_ids = Column(Text, nullable=True)        # JSON: [1, 2, 3]
     fecha_creacion = Column(DateTime, nullable=True)
 
@@ -395,6 +400,17 @@ class WeeklyConclusion(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     week_start = Column(String(10), nullable=False)  # YYYY-MM-DD
     week_end = Column(String(10), nullable=False)    # YYYY-MM-DD
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=True, default=datetime.now)
+    updated_at = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now)
+
+
+class DuvanConclusion(Base):
+    """Conclusiones personales registradas desde Progreso."""
+    __tablename__ = "duvan_conclusions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    conclusion_type = Column(String(50), nullable=False, default="vida")
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, nullable=True, default=datetime.now)
     updated_at = Column(DateTime, nullable=True, default=datetime.now, onupdate=datetime.now)
