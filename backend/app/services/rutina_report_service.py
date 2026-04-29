@@ -482,12 +482,12 @@ def _build_routine_breakdown(
         progress_day_count = 0
 
         for assignment in sorted(items, key=lambda item: item.fecha, reverse=True):
-            assignment_goal_ids = set(assignment.objetivo_ids or [])
-            assignment_goals = (
-                [goal for goal in routine_goals if goal.id in assignment_goal_ids]
-                if assignment_goal_ids
-                else routine_goals
-            )
+            assignment_goal_ids = assignment.objetivo_ids or []
+            if assignment_goal_ids:
+                goal_by_id = {goal.id: goal for goal in routine_goals}
+                assignment_goals = [goal_by_id[goal_id] for goal_id in assignment_goal_ids if goal_id in goal_by_id]
+            else:
+                assignment_goals = routine_goals
             assignment_goal_count = len(assignment_goals)
 
             goal_statuses: list[dict[str, Any]] = []

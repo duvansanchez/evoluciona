@@ -335,6 +335,7 @@ class Rutina(Base):
     color = Column(String(30), nullable=True)
     categoria = Column(String(100), nullable=True)
     descripcion = Column(Text, nullable=True)
+    duracion_proyectada_minutos = Column(Integer, nullable=True)
     dias_semana = Column(Text, nullable=True)  # JSON: [0..6] where 0 = lunes
     activa = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime, nullable=True)

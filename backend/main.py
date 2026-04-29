@@ -72,6 +72,13 @@ try:
             conn.execute(text("""
                 IF NOT EXISTS (
                     SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutinas') AND name = N'duracion_proyectada_minutos'
+                )
+                ALTER TABLE rutinas ADD duracion_proyectada_minutos INT NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'folder_id'
                 )
                 ALTER TABLE subobjetivos ADD folder_id INT NULL

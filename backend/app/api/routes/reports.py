@@ -83,6 +83,15 @@ def _markdown_download_response(md: str, filename: str) -> Response:
     )
 
 
+def _normalize_download_format(fmt: str | None) -> str:
+    value = (fmt or "markdown").lower()
+    if value == "md":
+        return "markdown"
+    if value in {"markdown", "html"}:
+        return value
+    raise HTTPException(status_code=400, detail="format must be html or markdown")
+
+
 def _resolve_single_week(reference_date: str | None):
     try:
         ref = date.fromisoformat(reference_date) if reference_date else date.today()
@@ -370,16 +379,19 @@ def preview_weekly_report(
 @router.get("/download-weekly")
 def download_weekly_report(
     week_of: str = Query(None, description="Fecha en la semana deseada (YYYY-MM-DD). Por defecto: semana anterior."),
+    format: str = Query("markdown"),
     db: Session = Depends(get_db)
 ):
-    """Descarga el informe semanal en Markdown."""
+    """Descarga el informe semanal en HTML o Markdown."""
     week_start, week_end = _resolve_week_range(week_of, use_previous_default=True)
     data = build_weekly_report(db, week_start, week_end)
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
     md = build_markdown_report(data)
-    return _markdown_download_response(
-        md,
-        f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}.md",
-    )
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.post("/send-current-week")
@@ -514,16 +526,19 @@ def preview_monthly_report(
 @router.get("/download-monthly")
 def download_monthly_report(
     month_of: str = Query(None, description="Fecha dentro del mes deseado (YYYY-MM-DD). Por defecto: mes anterior."),
+    format: str = Query("markdown"),
     db: Session = Depends(get_db)
 ):
-    """Descarga el informe mensual en Markdown."""
+    """Descarga el informe mensual en HTML o Markdown."""
     month_start, month_end = _resolve_month_range(month_of, use_previous_default=True)
     data = build_monthly_report(db, month_start, month_end)
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-mensual-{month_start}_{month_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
     md = build_markdown_report(data)
-    return _markdown_download_response(
-        md,
-        f"informe-preguntas-mensual-{month_start}_{month_end}.md",
-    )
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.post("/send-current-month")
@@ -587,8 +602,11 @@ def send_current_month_email(db: Session = Depends(get_db)):
 
 
 @router.get("/download-current-week")
-def download_current_week_report(db: Session = Depends(get_db)):
-    """Descarga el informe parcial acumulado de la semana actual en Markdown."""
+def download_current_week_report(
+    format: str = Query("markdown"),
+    db: Session = Depends(get_db)
+):
+    """Descarga el informe parcial acumulado de la semana actual en HTML o Markdown."""
     today = date.today()
     week_start, week_end = get_week_range(today)
     data = build_weekly_report(db, week_start, week_end)
@@ -603,17 +621,21 @@ def download_current_week_report(db: Session = Depends(get_db)):
     data["days_completed"] = days_completed
     data["completion_rate"] = completion_rate
     data["week_label"] = f"{data['week_label']} (acumulado a {today.isoformat()})"
-
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
     md = build_markdown_report(data)
-    return _markdown_download_response(
-        md,
-        f"informe-preguntas-semanal-desde-{week_start}-hasta-{week_end}.md",
-    )
+    return _markdown_download_response(md, f"{base_filename}.md")
 
 
 @router.get("/download-current-month")
-def download_current_month_report(db: Session = Depends(get_db)):
-    """Descarga el informe parcial acumulado del mes actual en Markdown."""
+def download_current_month_report(
+    format: str = Query("markdown"),
+    db: Session = Depends(get_db)
+):
+    """Descarga el informe parcial acumulado del mes actual en HTML o Markdown."""
     today = date.today()
     month_start, month_end = get_month_range(today)
     data = build_monthly_report(db, month_start, month_end)
@@ -628,9 +650,10 @@ def download_current_month_report(db: Session = Depends(get_db)):
     data["days_completed"] = days_completed
     data["completion_rate"] = completion_rate
     data["week_label"] = f"{data['week_label']} (acumulado a {today.isoformat()})"
-
+    normalized_format = _normalize_download_format(format)
+    base_filename = f"informe-preguntas-mes-actual-{today.isoformat()}"
+    if normalized_format == "html":
+        html = build_html_report(data)
+        return _html_download_response(html, f"{base_filename}.html")
     md = build_markdown_report(data)
-    return _markdown_download_response(
-        md,
-        f"informe-preguntas-mes-actual-{today.isoformat()}.md",
-    )
+    return _markdown_download_response(md, f"{base_filename}.md")

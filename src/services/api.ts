@@ -425,8 +425,8 @@ export const phrasesAPI = {
     return response.json();
   },
 
-  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
-    let url = `${API_BASE_URL}/phrases/report/download?mode=${mode}`;
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string, format: 'html' | 'markdown' = 'markdown') => {
+    let url = `${API_BASE_URL}/phrases/report/download?mode=${mode}&format=${format}`;
     if (referenceDate) url += `&reference_date=${referenceDate}`;
 
     const response = await fetch(url);
@@ -689,17 +689,20 @@ export const reportsAPI = {
     return response.json();
   },
 
-  downloadCurrentWeekReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/download-current-week`);
+  downloadCurrentWeekReport: async (format: 'html' | 'markdown' = 'markdown') => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-week?format=${format}`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error downloading current week report');
     }
     return response.blob();
   },
-  downloadPreviousWeekReport: async (weekOf?: string) => {
+  downloadPreviousWeekReport: async (weekOf?: string, format: 'html' | 'markdown' = 'markdown') => {
     let url = `${API_BASE_URL}/reports/download-weekly`;
-    if (weekOf) url += `?week_of=${weekOf}`;
+    const params = new URLSearchParams();
+    if (weekOf) params.set('week_of', weekOf);
+    params.set('format', format);
+    url += `?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
@@ -707,17 +710,20 @@ export const reportsAPI = {
     }
     return response.blob();
   },
-  downloadCurrentMonthReport: async () => {
-    const response = await fetch(`${API_BASE_URL}/reports/download-current-month`);
+  downloadCurrentMonthReport: async (format: 'html' | 'markdown' = 'markdown') => {
+    const response = await fetch(`${API_BASE_URL}/reports/download-current-month?format=${format}`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || 'Error downloading current month report');
     }
     return response.blob();
   },
-  downloadPreviousMonthReport: async (monthOf?: string) => {
+  downloadPreviousMonthReport: async (monthOf?: string, format: 'html' | 'markdown' = 'markdown') => {
     let url = `${API_BASE_URL}/reports/download-monthly`;
-    if (monthOf) url += `?month_of=${monthOf}`;
+    const params = new URLSearchParams();
+    if (monthOf) params.set('month_of', monthOf);
+    params.set('format', format);
+    url += `?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) {
       const errorText = await response.text();
@@ -959,6 +965,7 @@ export interface Rutina {
   color?: string;
   categoria?: string;
   descripcion?: string;
+  duracion_proyectada_minutos?: number;
   dias_semana: number[];
   activa: boolean;
   fecha_creacion?: string;
@@ -1150,6 +1157,7 @@ export const rutinasAPI = {
     color?: string;
     categoria?: string;
     descripcion?: string;
+    duracion_proyectada_minutos?: number;
     dias_semana: number[];
     bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
@@ -1168,6 +1176,7 @@ export const rutinasAPI = {
     color?: string;
     categoria?: string;
     descripcion?: string;
+    duracion_proyectada_minutos?: number | null;
     dias_semana?: number[];
     bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
@@ -1257,8 +1266,8 @@ export const rutinasAPI = {
     return r.json();
   },
 
-  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string) => {
-    let url = `${API_BASE_URL}/rutinas/report/download?mode=${mode}`;
+  downloadReport: async (mode: 'weekly' | 'monthly', referenceDate?: string, format: 'html' | 'markdown' = 'html') => {
+    let url = `${API_BASE_URL}/rutinas/report/download?mode=${mode}&format=${format}`;
     if (referenceDate) url += `&reference_date=${referenceDate}`;
     const r = await fetch(url);
     if (!r.ok) {
@@ -1320,6 +1329,21 @@ function normalizeExternalGoals(items: any[]): ExternalGoal[] {
 
 export interface ReminderPartConfig { enabled: boolean; hour: number; minute: number; }
 export interface ReminderConfig { manana: ReminderPartConfig; noche: ReminderPartConfig; }
+export interface CustomReminder {
+  id: string;
+  title: string;
+  message: string;
+  date: string;
+  hour: number;
+  minute: number;
+  times: Array<{ hour: number; minute: number }>;
+  recurrence: 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'multi_daily';
+  enabled: boolean;
+  recipient?: string | null;
+  notes?: string | null;
+  created_at: string;
+  next_run_time?: string | null;
+}
 
 export const remindersAPI = {
   getConfig: async (): Promise<ReminderConfig> => {
@@ -1341,6 +1365,49 @@ export const remindersAPI = {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.detail || 'Error enviando recordatorio de prueba');
+    }
+  },
+  listCustom: async (): Promise<CustomReminder[]> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom`);
+    if (!r.ok) throw new Error('Error fetching custom reminders');
+    return r.json();
+  },
+  createCustom: async (payload: Omit<CustomReminder, 'id' | 'created_at' | 'next_run_time'>): Promise<CustomReminder> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error creating custom reminder');
+    }
+    return r.json();
+  },
+  updateCustom: async (id: string, payload: Omit<CustomReminder, 'id' | 'created_at' | 'next_run_time'>): Promise<CustomReminder> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error updating custom reminder');
+    }
+    return r.json();
+  },
+  deleteCustom: async (id: string): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}`, { method: 'DELETE' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error deleting custom reminder');
+    }
+  },
+  testCustom: async (id: string): Promise<void> => {
+    const r = await fetch(`${API_BASE_URL}/reminders/custom/${id}/test`, { method: 'POST' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || 'Error sending custom reminder');
     }
   },
 };

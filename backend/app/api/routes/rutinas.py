@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.models.models import Rutina, RutinaBloque, RutinaAsignacion, Goal
-from app.services.email_service import build_html_rutina_report, send_weekly_report
+from app.services.email_service import build_html_rutina_report, build_markdown_rutina_report, send_weekly_report
 from app.services.goal_service import GoalService
 from app.services.report_scheduler_service import record_report_event
 from app.services.rutina_report_service import build_rutina_report
@@ -35,6 +35,7 @@ def _rutina_to_dict(r: Rutina) -> dict:
         "color": r.color,
         "categoria": r.categoria,
         "descripcion": r.descripcion,
+        "duracion_proyectada_minutos": r.duracion_proyectada_minutos,
         "dias_semana": json.loads(r.dias_semana) if r.dias_semana else [],
         "activa": r.activa,
         "fecha_creacion": r.fecha_creacion,
@@ -106,7 +107,7 @@ def _ensure_weekly_assignments(db: Session, fechas: list[str]) -> None:
         .filter(RutinaAsignacion.fecha.in_(fechas))
         .all()
     )
-    occupied_slots = {(assignment.fecha, assignment.parte_dia) for assignment in existing_assignments}
+    existing_keys = {(assignment.fecha, assignment.parte_dia, assignment.rutina_id) for assignment in existing_assignments}
 
     created = False
     for rutina in rutinas:
@@ -117,8 +118,8 @@ def _ensure_weekly_assignments(db: Session, fechas: list[str]) -> None:
         for fecha in fechas:
             if _weekday_index(fecha) not in weekly_days:
                 continue
-            slot = (fecha, rutina.parte_dia)
-            if slot in occupied_slots:
+            key = (fecha, rutina.parte_dia, rutina.id)
+            if key in existing_keys:
                 continue
 
             db.add(RutinaAsignacion(
@@ -129,7 +130,7 @@ def _ensure_weekly_assignments(db: Session, fechas: list[str]) -> None:
                 es_automatica=True,
                 fecha_creacion=datetime.now(),
             ))
-            occupied_slots.add(slot)
+            existing_keys.add(key)
             created = True
 
     if created:
@@ -154,6 +155,7 @@ def create_rutina(data: RutinaCreate, db: Session = Depends(get_db)):
         color=data.color,
         categoria=data.categoria,
         descripcion=data.descripcion,
+        duracion_proyectada_minutos=data.duracion_proyectada_minutos,
         dias_semana=json.dumps(data.dias_semana or []),
         activa=True,
         fecha_creacion=datetime.now(),
@@ -327,23 +329,39 @@ def send_rutina_report_email(
 def download_rutina_report(
     mode: str = Query("weekly"),
     reference_date: str | None = Query(None),
+    format: str = Query("html"),
     db: Session = Depends(get_db),
 ):
-    """Descargar el informe de rutinas en HTML."""
+    """Descargar el informe de rutinas en HTML o Markdown."""
     normalized_mode = (mode or "weekly").lower()
     if normalized_mode not in {"weekly", "monthly"}:
         raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
 
+    normalized_format = (format or "html").lower()
+    if normalized_format in {"md", "markdown"}:
+        normalized_format = "markdown"
+    if normalized_format not in {"html", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be html or markdown")
+
     data = build_rutina_report(db, normalized_mode, _parse_reference_date(reference_date))
-    html = build_html_rutina_report(data)
     if normalized_mode == "weekly":
-        filename = f"informe-rutinas-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.html"
+        base_filename = f"informe-rutinas-semanal-desde-{data['period_start']}-hasta-{data['period_end']}"
     else:
-        filename = f"informe-rutinas-{normalized_mode}-{data['period_start']}_{data['period_end']}.html"
+        base_filename = f"informe-rutinas-{normalized_mode}-{data['period_start']}_{data['period_end']}"
+
+    if normalized_format == "markdown":
+        md = build_markdown_rutina_report(data)
+        return Response(
+            content=md.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
+        )
+
+    html = build_html_rutina_report(data)
     return Response(
         content=html,
         media_type="text/html; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.html"'},
     )
 
 
@@ -371,6 +389,8 @@ def update_rutina(rutina_id: int, data: RutinaUpdate, db: Session = Depends(get_
         r.categoria = data.categoria
     if data.descripcion is not None:
         r.descripcion = data.descripcion
+    if "duracion_proyectada_minutos" in data.model_fields_set:
+        r.duracion_proyectada_minutos = data.duracion_proyectada_minutos
     if data.dias_semana is not None:
         r.dias_semana = json.dumps(data.dias_semana)
     if data.bloques is not None:
@@ -426,22 +446,22 @@ def remove_objetivo_from_rutina(rutina_id: int, objetivo_id: int, db: Session = 
 
 @router.post("/asignaciones", response_model=RutinaAsignacionResponse, status_code=201)
 def create_asignacion(data: RutinaAsignacionCreate, db: Session = Depends(get_db)):
-    """Asignar una rutina a un día y parte del día. Si ya existe una, la reemplaza."""
-    existing = (
+    """Asignar una rutina a un día y parte del día. Permite múltiples rutinas por franja."""
+    duplicate = (
         db.query(RutinaAsignacion)
         .filter(
             RutinaAsignacion.fecha == data.fecha,
             RutinaAsignacion.parte_dia == data.parte_dia,
+            RutinaAsignacion.rutina_id == data.rutina_id,
         )
         .first()
     )
-    if existing:
-        existing.rutina_id = data.rutina_id
-        existing.completada = False
-        existing.es_automatica = False
+    if duplicate:
+        duplicate.completada = False
+        duplicate.es_automatica = False
         db.commit()
-        db.refresh(existing)
-        return _asignacion_to_dict(existing)
+        db.refresh(duplicate)
+        return _asignacion_to_dict(duplicate)
 
     asignacion = RutinaAsignacion(
         fecha=data.fecha,
@@ -465,19 +485,21 @@ def update_asignacion(asignacion_id: int, data: RutinaAsignacionUpdate, db: Sess
 
     next_fecha = data.fecha if data.fecha is not None else a.fecha
     next_parte_dia = data.parte_dia if data.parte_dia is not None else a.parte_dia
+    next_rutina_id = data.rutina_id if data.rutina_id is not None else a.rutina_id
 
-    if data.fecha is not None or data.parte_dia is not None:
-        conflicting = (
+    if data.fecha is not None or data.parte_dia is not None or data.rutina_id is not None:
+        duplicate = (
             db.query(RutinaAsignacion)
             .filter(
                 RutinaAsignacion.id != a.id,
                 RutinaAsignacion.fecha == next_fecha,
                 RutinaAsignacion.parte_dia == next_parte_dia,
+                RutinaAsignacion.rutina_id == next_rutina_id,
             )
             .first()
         )
-        if conflicting:
-            raise HTTPException(status_code=409, detail="Ya existe una rutina asignada en ese dia y parte del dia")
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Esa rutina ya está asignada en ese día y parte del día")
 
     if data.rutina_id is not None:
         a.rutina_id = data.rutina_id

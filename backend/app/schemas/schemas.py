@@ -397,6 +397,7 @@ class RutinaCreate(BaseModel):
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
+    duracion_proyectada_minutos: Optional[int] = Field(None, ge=1, le=1440)
     dias_semana: List[int] = []
     bloques: List[RutinaBloqueCreate] = []
 
@@ -407,6 +408,7 @@ class RutinaUpdate(BaseModel):
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
+    duracion_proyectada_minutos: Optional[int] = Field(None, ge=1, le=1440)
     dias_semana: Optional[List[int]] = None
     bloques: Optional[List[RutinaBloqueCreate]] = None
 
@@ -418,6 +420,7 @@ class RutinaResponse(BaseModel):
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
+    duracion_proyectada_minutos: Optional[int] = None
     dias_semana: List[int] = []
     activa: bool
     fecha_creacion: Optional[datetime] = None

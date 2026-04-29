@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, ChevronRight, Eye, EyeOff, Focus, FolderOpen, Pause, Play, RotateCcw, X, GripVertical } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Eye, EyeOff, Focus, FolderOpen, Pause, Play, RotateCcw, X, GripVertical, VolumeX } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import type { SubGoal, Goal, GoalFolder } from '@/types';
 import { renderMarkdownPreview } from '@/utils/markdownPreview';
@@ -62,6 +62,31 @@ export default function GoalFocusModal({
   
   const intervalRef = useRef<number | null>(null);
   const prevOpenRef = useRef(open);
+  const reminderUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [isReminderSpeaking, setIsReminderSpeaking] = useState(false);
+
+  const getYearEndReminder = () => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfYear = new Date(now.getFullYear(), 11, 31);
+    const diffMs = endOfYear.getTime() - today.getTime();
+    const daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+    if (daysLeft === 0) {
+      return 'Hoy termina el año. Aprovecha este último día para avanzar en tus metas.';
+    }
+    if (daysLeft === 1) {
+      return 'Queda un día para terminar el año. Enfócate y termina fuerte tus metas de hoy.';
+    }
+    return `Quedan ${daysLeft} días para terminar el año. Enfócate y avanza con tus metas de hoy.`;
+  };
+
+  const stopYearReminderSpeech = () => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    reminderUtteranceRef.current = null;
+    setIsReminderSpeaking(false);
+  };
 
   // Cargar datos del objetivo
   useEffect(() => {
@@ -81,6 +106,27 @@ export default function GoalFocusModal({
       setHiddenSubGoalIds(new Set(raw ? JSON.parse(raw) : []));
     }
   }, [open, goal]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    const reminder = getYearEndReminder();
+    stopYearReminderSpeech();
+    const utterance = new SpeechSynthesisUtterance(reminder);
+    utterance.lang = 'es-CO';
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.onend = () => setIsReminderSpeaking(false);
+    utterance.onerror = () => setIsReminderSpeaking(false);
+    reminderUtteranceRef.current = utterance;
+    setIsReminderSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+
+    return () => {
+      stopYearReminderSpeech();
+    };
+  }, [open]);
 
   // Detectar cuando se cierra el modal y guardar si hay cambios
   useEffect(() => {
@@ -251,6 +297,16 @@ export default function GoalFocusModal({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {isReminderSpeaking && (
+                <button
+                  onClick={stopYearReminderSpeech}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+                  title="Parar lectura"
+                >
+                  <VolumeX className="h-4 w-4" />
+                  Parar voz
+                </button>
+              )}
               <button
                 onClick={() => setShowFoldersModal(true)}
                 className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"

@@ -33,7 +33,7 @@ export default function ReviewModal({
   const [showNotes, setShowNotes] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [badgePopKey, setBadgePopKey] = useState(0);
-  const [savingReview, setSavingReview] = useState(false);
+  const [, setPendingReviewCount] = useState(0);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioProvider, setAudioProvider] = useState<'browser' | 'elevenlabs' | 'edge'>('browser');
@@ -136,8 +136,13 @@ export default function ReviewModal({
 
   const markPhraseAsReviewed = async (phraseId: string) => {
     if (reviewedPhraseIdsRef.current.has(phraseId)) return;
-    await onReview(phraseId);
     reviewedPhraseIdsRef.current.add(phraseId);
+    try {
+      await onReview(phraseId);
+    } catch (error) {
+      reviewedPhraseIdsRef.current.delete(phraseId);
+      throw error;
+    }
   };
 
   const queueNextPhraseAfterPlayback = () => {
@@ -443,12 +448,11 @@ export default function ReviewModal({
   };
 
   const handleMarkAsReviewed = async () => {
-    if (savingReview) return;
     const phraseId = currentPhrase.id;
     const hasNext = currentIndex < phrases.length - 1;
 
     try {
-      setSavingReview(true);
+      setPendingReviewCount(count => count + 1);
       setReviewError(null);
 
       // Avance optimista: no bloquear la navegación por latencia/errores de red.
@@ -463,7 +467,7 @@ export default function ReviewModal({
       console.error('Error registering phrase review:', error);
       setReviewError('No se pudo registrar este repaso en el servidor, pero puedes continuar.');
     } finally {
-      setSavingReview(false);
+      setPendingReviewCount(count => Math.max(0, count - 1));
     }
   };
 
@@ -907,7 +911,6 @@ export default function ReviewModal({
 
             <button
               onClick={handleMarkAsReviewed}
-              disabled={savingReview}
               className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {currentIndex < phrases.length - 1 ? '✓ Repasada' : '✓ Finalizar Repaso'}

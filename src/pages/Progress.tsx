@@ -99,16 +99,32 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-function buildPhraseFilename(mode: 'weekly' | 'monthly', referenceDate: string) {
+function buildPhraseFilename(mode: 'weekly' | 'monthly', referenceDate: string, format: 'html' | 'markdown' = 'markdown') {
+  const extension = format === 'markdown' ? 'md' : 'html';
   if (mode === 'weekly') {
     const { from, to } = getWeekRangeIso(referenceDate);
-    return `informe-frases-semanal-desde-${from}-hasta-${to}.html`;
+    return `informe-frases-semanal-desde-${from}-hasta-${to}.${extension}`;
   }
-  return `informe-frases-mensual-${referenceDate}.html`;
+  const monthDate = new Date(`${referenceDate}T12:00:00`);
+  const monthStart = toIsoDateLocal(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1));
+  const monthEnd = toIsoDateLocal(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0));
+  return `informe-frases-mensual-desde-${monthStart}-hasta-${monthEnd}.${extension}`;
 }
 
-function buildQuestionsFilename(scope: 'current-week' | 'previous-week' | 'current-month' | 'previous-month') {
-  return `informe-preguntas-${scope}.html`;
+function buildQuestionsFilename(
+  mode: 'weekly' | 'monthly',
+  referenceDate: string,
+  format: 'html' | 'markdown' = 'markdown',
+) {
+  const extension = format === 'markdown' ? 'md' : 'html';
+  if (mode === 'weekly') {
+    const { from, to } = getWeekRangeIso(referenceDate);
+    return `informe-preguntas-semanal-desde-${from}-hasta-${to}.${extension}`;
+  }
+  const monthDate = new Date(`${referenceDate}T12:00:00`);
+  const monthStart = toIsoDateLocal(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1));
+  const monthEnd = toIsoDateLocal(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0));
+  return `informe-preguntas-mensual-desde-${monthStart}-hasta-${monthEnd}.${extension}`;
 }
 
 function getWeekMonday(referenceDate: string): Date {
@@ -177,12 +193,13 @@ function getMonthRef(referenceDate: string): string {
   return `${y}-${m}-01`;
 }
 
-function buildRutinasFilename(mode: 'weekly' | 'monthly', referenceDate: string) {
+function buildRutinasFilename(mode: 'weekly' | 'monthly', referenceDate: string, format: 'html' | 'markdown' = 'html') {
+  const extension = format === 'markdown' ? 'md' : 'html';
   if (mode === 'weekly') {
     const { from, to } = getWeekRangeIso(referenceDate);
-    return `informe-rutinas-semanal-desde-${from}-hasta-${to}.html`;
+    return `informe-rutinas-semanal-desde-${from}-hasta-${to}.${extension}`;
   }
-  return `informe-rutinas-mensual-${referenceDate}.html`;
+  return `informe-rutinas-mensual-${referenceDate}.${extension}`;
 }
 
 function getReportTypeLabel(type: string) {
@@ -593,14 +610,21 @@ export default function Progress() {
     }, successText);
   };
 
-  const handleDownloadPhrases = async () => {
+  const handleDownloadPhrases = async (format: 'html' | 'markdown') => {
+    const key = format === 'markdown' ? 'phrases-download-md' : 'phrases-download-html';
+    const successText = format === 'markdown'
+      ? 'Informe de frases (MD) descargado correctamente.'
+      : 'Informe de frases (HTML) descargado correctamente.';
     await runPhrasesAction(
-      'phrases-download',
+      key,
       async () => {
-        const blob = await phrasesAPI.downloadReport(phraseReportMode, phraseReferenceDate);
-        downloadBlob(blob, buildPhraseFilename(phraseReportMode, phraseReferenceDate));
+        const blob = await phrasesAPI.downloadReport(phraseReportMode, phraseReferenceDate, format);
+        if (format === 'html' && blob.type.includes('markdown')) {
+          throw new Error('El backend aun esta devolviendo Markdown para frases. Reinicia el backend para aplicar la ruta con format=html.');
+        }
+        downloadBlob(blob, buildPhraseFilename(phraseReportMode, phraseReferenceDate, format));
       },
-      'Informe de frases descargado correctamente.',
+      successText,
     );
   };
 
@@ -620,14 +644,18 @@ export default function Progress() {
     }
   };
 
-  const handleDownloadRutinas = async () => {
+  const handleDownloadRutinas = async (format: 'html' | 'markdown') => {
+    const key = format === 'markdown' ? 'rutinas-download-md' : 'rutinas-download';
+    const successText = format === 'markdown'
+      ? 'Informe de rutinas en Markdown descargado correctamente.'
+      : 'Informe de rutinas en HTML descargado correctamente.';
     await runRutinasAction(
-      'rutinas-download',
+      key,
       async () => {
-        const blob = await rutinasAPI.downloadReport(rutinaReportMode, rutinaReferenceDate);
-        downloadBlob(blob, buildRutinasFilename(rutinaReportMode, rutinaReferenceDate));
+        const blob = await rutinasAPI.downloadReport(rutinaReportMode, rutinaReferenceDate, format);
+        downloadBlob(blob, buildRutinasFilename(rutinaReportMode, rutinaReferenceDate, format));
       },
-      'Informe de rutinas descargado correctamente.',
+      successText,
     );
   };
 
@@ -948,16 +976,51 @@ export default function Progress() {
                     onClick={() => {
                       const weekMonday = getWeekMonday(questionsWeekRef).toISOString().slice(0, 10);
                       if (isCurrentWeek(questionsWeekRef)) {
-                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadCurrentWeekReport(), `informe-preguntas-${weekMonday}.md`, 'Informe descargado.');
+                        void handleDownloadQuestions(
+                          'questions-download-week-html',
+                          () => reportsAPI.downloadCurrentWeekReport('html'),
+                          buildQuestionsFilename('weekly', weekMonday, 'html'),
+                          'Informe semanal (HTML) descargado.',
+                        );
                       } else {
-                        void handleDownloadQuestions('questions-download-week', () => reportsAPI.downloadPreviousWeekReport(weekMonday), `informe-preguntas-${weekMonday}.md`, 'Informe descargado.');
+                        void handleDownloadQuestions(
+                          'questions-download-week-html',
+                          () => reportsAPI.downloadPreviousWeekReport(weekMonday, 'html'),
+                          buildQuestionsFilename('weekly', weekMonday, 'html'),
+                          'Informe semanal (HTML) descargado.',
+                        );
                       }
                     }}
-                    disabled={questionsActionLoading === 'questions-download-week'}
+                    disabled={questionsActionLoading === 'questions-download-week-html'}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    {questionsActionLoading === 'questions-download-week' ? 'Descargando...' : 'Descargar'}
+                    {questionsActionLoading === 'questions-download-week-html' ? 'Descargando...' : 'Descargar HTML'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const weekMonday = getWeekMonday(questionsWeekRef).toISOString().slice(0, 10);
+                      if (isCurrentWeek(questionsWeekRef)) {
+                        void handleDownloadQuestions(
+                          'questions-download-week-md',
+                          () => reportsAPI.downloadCurrentWeekReport('markdown'),
+                          buildQuestionsFilename('weekly', weekMonday, 'markdown'),
+                          'Informe semanal (MD) descargado.',
+                        );
+                      } else {
+                        void handleDownloadQuestions(
+                          'questions-download-week-md',
+                          () => reportsAPI.downloadPreviousWeekReport(weekMonday, 'markdown'),
+                          buildQuestionsFilename('weekly', weekMonday, 'markdown'),
+                          'Informe semanal (MD) descargado.',
+                        );
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-download-week-md'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-download-week-md' ? 'Descargando...' : 'Descargar MD'}
                   </button>
                 </div>
               </div>
@@ -1000,16 +1063,51 @@ export default function Progress() {
                     onClick={() => {
                       const monthOf = getMonthRef(questionsMonthRef);
                       if (isCurrentMonth(questionsMonthRef)) {
-                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadCurrentMonthReport(), `informe-preguntas-${monthOf}.md`, 'Informe descargado.');
+                        void handleDownloadQuestions(
+                          'questions-download-month-html',
+                          () => reportsAPI.downloadCurrentMonthReport('html'),
+                          buildQuestionsFilename('monthly', monthOf, 'html'),
+                          'Informe mensual (HTML) descargado.',
+                        );
                       } else {
-                        void handleDownloadQuestions('questions-download-month', () => reportsAPI.downloadPreviousMonthReport(monthOf), `informe-preguntas-${monthOf}.md`, 'Informe descargado.');
+                        void handleDownloadQuestions(
+                          'questions-download-month-html',
+                          () => reportsAPI.downloadPreviousMonthReport(monthOf, 'html'),
+                          buildQuestionsFilename('monthly', monthOf, 'html'),
+                          'Informe mensual (HTML) descargado.',
+                        );
                       }
                     }}
-                    disabled={questionsActionLoading === 'questions-download-month'}
+                    disabled={questionsActionLoading === 'questions-download-month-html'}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    {questionsActionLoading === 'questions-download-month' ? 'Descargando...' : 'Descargar'}
+                    {questionsActionLoading === 'questions-download-month-html' ? 'Descargando...' : 'Descargar HTML'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const monthOf = getMonthRef(questionsMonthRef);
+                      if (isCurrentMonth(questionsMonthRef)) {
+                        void handleDownloadQuestions(
+                          'questions-download-month-md',
+                          () => reportsAPI.downloadCurrentMonthReport('markdown'),
+                          buildQuestionsFilename('monthly', monthOf, 'markdown'),
+                          'Informe mensual (MD) descargado.',
+                        );
+                      } else {
+                        void handleDownloadQuestions(
+                          'questions-download-month-md',
+                          () => reportsAPI.downloadPreviousMonthReport(monthOf, 'markdown'),
+                          buildQuestionsFilename('monthly', monthOf, 'markdown'),
+                          'Informe mensual (MD) descargado.',
+                        );
+                      }
+                    }}
+                    disabled={questionsActionLoading === 'questions-download-month-md'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    {questionsActionLoading === 'questions-download-month-md' ? 'Descargando...' : 'Descargar MD'}
                   </button>
                 </div>
               </div>
@@ -1118,7 +1216,7 @@ export default function Progress() {
                 <p className="text-sm text-muted-foreground">Cargando informe de frases...</p>
               )}
 
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <ReportActionButton
                   onClick={() => runPhrasesAction('phrases-send', () => phrasesAPI.sendReportEmail(phraseReportMode, phraseReferenceDate), `Informe de frases enviado: ${phraseReport?.period_label || phraseReferenceDate}`)}
                   loading={phrasesActionLoading === 'phrases-send'}
@@ -1128,8 +1226,15 @@ export default function Progress() {
                   Enviar a Gmail
                 </ReportActionButton>
                 <ReportActionButton
-                  onClick={handleDownloadPhrases}
-                  loading={phrasesActionLoading === 'phrases-download'}
+                  onClick={() => handleDownloadPhrases('html')}
+                  loading={phrasesActionLoading === 'phrases-download-html'}
+                  icon={<Download className="h-4 w-4" />}
+                >
+                  Descargar HTML
+                </ReportActionButton>
+                <ReportActionButton
+                  onClick={() => handleDownloadPhrases('markdown')}
+                  loading={phrasesActionLoading === 'phrases-download-md'}
                   icon={<Download className="h-4 w-4" />}
                 >
                   Descargar MD
@@ -1403,7 +1508,7 @@ export default function Progress() {
                 </div>
               )}
 
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:grid-cols-3">
                 <ReportActionButton
                   onClick={() => runRutinasAction('rutinas-send', () => rutinasAPI.sendReportEmail(rutinaReportMode, rutinaReferenceDate), `Informe de rutinas enviado: ${rutinaReport?.period_label || rutinaReferenceDate}`)}
                   loading={rutinasActionLoading === 'rutinas-send'}
@@ -1413,11 +1518,18 @@ export default function Progress() {
                   Enviar a Gmail
                 </ReportActionButton>
                 <ReportActionButton
-                  onClick={handleDownloadRutinas}
+                  onClick={() => handleDownloadRutinas('html')}
                   loading={rutinasActionLoading === 'rutinas-download'}
                   icon={<Download className="h-4 w-4" />}
                 >
                   Descargar HTML
+                </ReportActionButton>
+                <ReportActionButton
+                  onClick={() => handleDownloadRutinas('markdown')}
+                  loading={rutinasActionLoading === 'rutinas-download-md'}
+                  icon={<Download className="h-4 w-4" />}
+                >
+                  Descargar MD
                 </ReportActionButton>
               </div>
 

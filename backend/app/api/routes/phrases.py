@@ -400,12 +400,19 @@ def generate_phrase_audio(payload: PhraseAudioRequest):
 def download_phrase_report(
     mode: str = Query("weekly"),
     reference_date: str | None = Query(None),
+    format: str = Query("markdown"),
     db: Session = Depends(get_db),
 ):
-    """Descarga el informe de frases del periodo como archivo HTML."""
+    """Descarga el informe de frases del periodo en HTML o Markdown."""
     normalized_mode = (mode or "weekly").lower()
     if normalized_mode not in {"weekly", "monthly"}:
         raise HTTPException(status_code=400, detail="Mode must be weekly or monthly")
+
+    normalized_format = (format or "markdown").lower()
+    if normalized_format == "md":
+        normalized_format = "markdown"
+    if normalized_format not in {"html", "markdown"}:
+        raise HTTPException(status_code=400, detail="format must be html or markdown")
 
     parsed_reference: date | None = None
     if reference_date:
@@ -415,17 +422,25 @@ def download_phrase_report(
             raise HTTPException(status_code=400, detail="reference_date must use YYYY-MM-DD") from exc
 
     data = build_phrase_report(db, normalized_mode, parsed_reference)
-    md = build_markdown_phrase_report(data)
     if normalized_mode == "weekly":
-        filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}.md"
+        base_filename = f"informe-frases-semanal-desde-{data['period_start']}-hasta-{data['period_end']}"
     else:
-        period = data.get("period_label", reference_date or "informe")
-        filename = f"informe-frases-mensual-{period}.md"
+        base_filename = f"informe-frases-mensual-{data['period_start']}_{data['period_end']}"
+
+    if normalized_format == "html":
+        html = build_html_phrase_report(data)
+        return Response(
+            content=html,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.html"'},
+        )
+
+    md = build_markdown_phrase_report(data)
 
     return Response(
         content=md.encode("utf-8"),
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.md"'},
     )
 
 

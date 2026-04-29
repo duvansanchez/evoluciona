@@ -105,6 +105,9 @@ def build_phrase_report(db: Session, mode: str = "weekly", reference: Optional[d
                 "text": phrase_lookup.get(phrase_id).texto if phrase_lookup.get(phrase_id) else f"Frase {phrase_id}",
                 "count": count,
                 "author": phrase_lookup.get(phrase_id).autor if phrase_lookup.get(phrase_id) else None,
+                "is_currently_active": (
+                    phrase_lookup.get(phrase_id).activa if phrase_lookup.get(phrase_id) is not None else None
+                ),
             }
             for phrase_id, count in top_phrase_counts.items()
         ],

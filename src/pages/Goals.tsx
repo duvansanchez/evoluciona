@@ -1292,7 +1292,18 @@ export default function Goals() {
         (() => {
           // Construir grupos de rutinas activas hoy
           const seenGoalIds = new Set<string>();
-          const rutinaGroups = todayAsignaciones
+          const dayPartOrder: Record<string, number> = {
+            morning: 0,
+            afternoon: 1,
+            evening: 2,
+          };
+
+          const rutinaGroups = [...todayAsignaciones]
+            .sort((a, b) => {
+              const partDiff = (dayPartOrder[a.parte_dia] ?? 99) - (dayPartOrder[b.parte_dia] ?? 99);
+              if (partDiff !== 0) return partDiff;
+              return a.rutina.nombre.localeCompare(b.rutina.nombre, 'es', { sensitivity: 'base' });
+            })
             .map(asig => {
               const goalsInRutina = sorted.filter(g =>
                 asig.rutina.objetivos.some(o => o.id.toString() === g.id)

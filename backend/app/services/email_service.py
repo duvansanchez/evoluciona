@@ -51,6 +51,7 @@ def _question_block(q: Dict) -> str:
     total = q["total_responses"]
     feedback_count = q.get("feedback_count", 0)
     skip_count = q.get("skip_count", 0)
+    is_currently_active = q.get("is_currently_active", True)
     header_color = {
         "radio": "#4f46e5", "select": "#0891b2",
         "checkbox": "#7c3aed", "text": "#d97706"
@@ -68,6 +69,7 @@ def _question_block(q: Dict) -> str:
           <span style="color:rgba(255,255,255,0.75);font-size:12px;margin-left:10px;">{type_label} &bull; {total} respuesta{'s' if total != 1 else ''}</span>
           <span style="color:rgba(255,255,255,0.75);font-size:12px;margin-left:10px;">{feedback_count} feedback{'s' if feedback_count != 1 else ''}</span>
           <span style="color:rgba(255,255,255,0.75);font-size:12px;margin-left:10px;">{skip_count} salto{'s' if skip_count != 1 else ''}</span>
+          {"<span style='display:inline-block;background:rgba(255,255,255,0.18);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;margin-left:10px;'>Desactivada actualmente</span>" if not is_currently_active else ""}
         </td>
       </tr>
       <tr><td style="padding:16px;background:#fafafa;">
@@ -184,6 +186,7 @@ def build_html_phrase_report(data: Dict[str, Any]) -> str:
           <td style="padding:10px 0;border-bottom:1px solid #e5e7eb;">
             <div style="font-size:14px;font-weight:600;color:#111827;">{item['text']}</div>
             <div style="font-size:12px;color:#6b7280;margin-top:4px;">{item.get('author') or 'Sin autor'}</div>
+            {"<div style='margin-top:6px;'><span style='display:inline-block;background:#fee2e2;color:#991b1b;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid #fecaca;'>Desactivada actualmente</span></div>" if item.get('is_currently_active') is False else ""}
           </td>
           <td align="right" style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px;font-weight:700;color:#2563eb;">
             {item.get('count', 0)}x
@@ -369,18 +372,20 @@ def build_markdown_phrase_report(data: Dict[str, Any]) -> str:
         "",
     ]
 
-    top_phrases = data.get("top_phrases", [])
+    top_phrases = data.get("top_phrases", [])[:10]
     if top_phrases:
         for item in top_phrases:
             author = item.get("author") or "Sin autor"
             lines.append(f"- **{item.get('text', '')}**")
             lines.append(f"  - Autor: {author}")
             lines.append(f"  - Repasos: {item.get('count', 0)}")
+            if item.get("is_currently_active") is False:
+                lines.append("  - Estado actual: desactivada")
     else:
         lines.append("- No hubo repasos en este periodo.")
 
     lines.extend(["", "## Categorias mas trabajadas", ""])
-    category_usage = data.get("category_usage", [])
+    category_usage = data.get("category_usage", [])[:8]
     if category_usage:
         for item in category_usage:
             lines.append(f"- {item.get('category_name') or 'Sin categoria'}: {item.get('count', 0)}")
@@ -396,7 +401,7 @@ def build_markdown_phrase_report(data: Dict[str, Any]) -> str:
         lines.append("- Sin distribucion disponible.")
 
     lines.extend(["", "## Planes de repaso usados", ""])
-    plans_used = data.get("plans_used", [])
+    plans_used = data.get("plans_used", [])[:8]
     if plans_used:
         for item in plans_used:
             lines.append(f"- {item.get('name') or 'Sin plan'}: {item.get('count', 0)}")
@@ -445,6 +450,18 @@ def build_markdown_report(data: Dict[str, Any]) -> str:
     else:
         lines.append("- Sin registros en este periodo.")
 
+    lines.extend(["", "## Preguntas saltadas por dia", ""])
+    skipped_days = data.get("skipped_days", [])
+    if skipped_days:
+        for item in skipped_days:
+            lines.append(
+                f"- {item.get('date', '')}: {item.get('count', 0)} pregunta"
+                f"{'s' if (item.get('count', 0) or 0) != 1 else ''} saltada"
+                f"{'s' if (item.get('count', 0) or 0) != 1 else ''}"
+            )
+    else:
+        lines.append("- No hubo preguntas saltadas en este periodo.")
+
     lines.extend(["", "## Preguntas y respuestas", ""])
 
     questions = data.get("questions", [])
@@ -453,15 +470,17 @@ def build_markdown_report(data: Dict[str, Any]) -> str:
             qtext = q.get("text", "Sin texto")
             qtype = q.get("type", "")
             total = q.get("total_responses", 0)
+            feedback_count = q.get("feedback_count", 0)
             skip_count = q.get("skip_count", 0)
+            status_note = " | Estado actual: desactivada" if not q.get("is_currently_active", True) else ""
             lines.append(f"### {qtext}")
-            lines.append(f"*Tipo: {qtype} | Respuestas: {total} | Saltadas: {skip_count}*")
+            lines.append(f"*Tipo: {qtype} | Respuestas: {total} | Feedbacks: {feedback_count} | Saltadas: {skip_count}{status_note}*")
             lines.append("")
 
-            options = q.get("options", [])
-            if options:
+            distribution = q.get("distribution", [])
+            if distribution:
                 lines.append("**Distribucion de respuestas:**")
-                for opt in options:
+                for opt in distribution:
                     count = opt.get("count", 0)
                     pct = opt.get("pct", 0)
                     label_opt = opt.get("label", opt.get("value", ""))
@@ -473,8 +492,22 @@ def build_markdown_report(data: Dict[str, Any]) -> str:
                 lines.append("**Respuestas de texto:**")
                 for ans in text_answers:
                     date_str = ans.get("date", "")
-                    value = ans.get("value", "")
+                    value = ans.get("response", "")
                     lines.append(f"- [{date_str}] {value}")
+                lines.append("")
+
+            skips = q.get("skips", [])
+            if skips:
+                lines.append("**Dias saltados:**")
+                for item in skips:
+                    lines.append(f"- {item.get('date', '')}")
+                lines.append("")
+
+            feedbacks = q.get("feedbacks", [])
+            if feedbacks:
+                lines.append("**Feedback del periodo:**")
+                for item in feedbacks:
+                    lines.append(f"- [{item.get('date', '')}] {item.get('text', '')}")
                 lines.append("")
     else:
         lines.append("- Sin preguntas registradas en este periodo.")
@@ -706,6 +739,139 @@ def build_html_rutina_report(data: Dict[str, Any]) -> str:
 </body></html>"""
 
 
+def build_markdown_rutina_report(data: Dict[str, Any]) -> str:
+    """Genera el Markdown del informe de rutinas para descarga."""
+    mode_label = "Semanal" if data.get("mode") == "weekly" else "Mensual"
+    lines: list[str] = [
+        "# Informe de Rutinas",
+        "",
+        f"**Tipo:** {mode_label}",
+        f"**Periodo:** {data.get('period_label', '')}",
+        f"**Rango:** {data.get('period_start', '')} a {data.get('period_end', '')}",
+        "",
+        "## Resumen",
+        "",
+        f"- Asignaciones: {data.get('total_assignments', 0)}",
+        f"- Completadas: {data.get('completed_assignments', 0)}",
+        f"- Cumplimiento: {data.get('completion_rate', 0)}%",
+        f"- Dias con rutinas: {data.get('days_with_routines', 0)}",
+        f"- Dias completados: {data.get('completed_days', 0)}",
+    ]
+
+    streaks = data.get("streaks", {})
+    coverage = data.get("coverage", {})
+    lines.extend([
+        f"- Racha actual: {streaks.get('current', 0)} dias",
+        f"- Racha maxima: {streaks.get('max', 0)} dias",
+        (
+            f"- Cobertura de rutinas activas: {coverage.get('percent', 0)}% "
+            f"({coverage.get('assigned_active_routines', 0)} de {coverage.get('active_routines', 0)})"
+        ),
+        "",
+        "## Rutinas mas usadas",
+        "",
+    ])
+
+    top_routines = data.get("top_routines", [])
+    if top_routines:
+        for item in top_routines:
+            lines.append(
+                f"- {item.get('name', 'Sin nombre')} "
+                f"({item.get('day_part_label') or 'Sin parte del dia'}): "
+                f"{item.get('completed', 0)}/{item.get('assigned', 0)} "
+                f"({item.get('completion_rate', 0)}%)"
+            )
+    else:
+        lines.append("- No hubo rutinas asignadas en este periodo.")
+
+    lines.extend(["", "## Rendimiento por parte del dia", ""])
+    day_parts = data.get("day_part_usage", [])
+    if day_parts:
+        for item in day_parts:
+            lines.append(
+                f"- {item.get('label', 'Sin parte del dia')}: "
+                f"{item.get('completed', 0)}/{item.get('assigned', 0)} "
+                f"({item.get('completion_rate', 0)}%)"
+            )
+    else:
+        lines.append("- Sin actividad por parte del dia.")
+
+    lines.extend(["", "## Distribucion por dia", ""])
+    daily_distribution = data.get("daily_distribution", [])
+    if daily_distribution:
+        for item in daily_distribution:
+            lines.append(
+                f"- {item.get('date', '')}: {item.get('completed', 0)}/{item.get('assigned', 0)} "
+                f"({item.get('completion_rate', 0)}%)"
+            )
+    else:
+        lines.append("- No hubo asignaciones en este periodo.")
+
+    goal_completion_summary = data.get("goal_completion_summary", {})
+    lines.extend([
+        "",
+        "## Detalle completo por rutina y dia",
+        "",
+        f"- Completados registrados: {goal_completion_summary.get('total_completions', 0)}",
+        f"- Dias con avances: {goal_completion_summary.get('days_with_completions', 0)}",
+        "",
+    ])
+
+    routine_breakdown = data.get("routine_breakdown", [])
+    if routine_breakdown:
+        for routine in routine_breakdown:
+            lines.append(
+                f"### {routine.get('name', 'Sin nombre')} "
+                f"({routine.get('day_part_label') or 'Sin parte del dia'})"
+            )
+            lines.append(
+                f"- Avance promedio: {routine.get('average_progress_percent', 0)}%"
+            )
+            lines.append(
+                f"- Tareas vinculadas: {routine.get('linked_goals', 0)}"
+            )
+            lines.append(
+                f"- Dias incompletos: {routine.get('failed_days', 0)} | Dias neutrales: {routine.get('neutral_days', 0)}"
+            )
+            lines.append("")
+
+            days = routine.get("days", [])
+            if not days:
+                lines.append("- No hubo dias asignados para esta rutina.")
+                lines.append("")
+                continue
+
+            for day in days:
+                progress_text = "No computa" if day.get("is_neutral") else f"{day.get('progress_percent', 0)}%"
+                lines.append(
+                    f"- **{day.get('date', '')}**: {progress_text} {day.get('progress_label', '')}".strip()
+                )
+                lines.append(
+                    f"  - Completadas: {day.get('completed_count', 0)} de {day.get('goal_count', 0)}"
+                )
+                lines.append(f"  - Saltadas: {day.get('skipped_count', 0)}")
+                lines.append(f"  - Pendientes: {day.get('pending_count', 0)}")
+
+                goals = day.get("goals", [])
+                if goals:
+                    for goal in goals:
+                        status = goal.get("status")
+                        status_label = "Completado" if status == "completed" else "Saltado" if status == "skipped" else "Pendiente"
+                        lines.append(
+                            f"    - [{status_label}] {((goal.get('icon') or '') + ' ' + (goal.get('title') or '')).strip()}"
+                        )
+                        if status == "skipped" and goal.get("skip_reason"):
+                            lines.append(f"      - Motivo: {goal.get('skip_reason')}")
+                else:
+                    lines.append("    - Esta rutina no tiene objetivos vinculados.")
+
+            lines.append("")
+    else:
+        lines.append("- No hubo rutinas asignadas en este periodo.")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def build_html_report(data: Dict[str, Any]) -> str:
     """Genera el HTML completo del informe."""
 
@@ -847,11 +1013,11 @@ def build_html_report(data: Dict[str, Any]) -> str:
 # Envio via Gmail SMTP
 # ---------------------------------------------------------------------------
 
-def send_weekly_report(html: str, subject: str) -> bool:
-    """Envia el HTML por Gmail SMTP. Retorna True si fue exitoso."""
+def send_html_email(html: str, subject: str, recipient_override: str | None = None) -> bool:
+    """Envia un correo HTML por Gmail SMTP. Retorna True si fue exitoso."""
     gmail_user = settings.GMAIL_USER
     app_password = settings.GMAIL_APP_PASSWORD
-    recipient = settings.REPORT_RECIPIENT or gmail_user
+    recipient = recipient_override or settings.REPORT_RECIPIENT or gmail_user
 
     if not gmail_user or not app_password:
         logger.error("GMAIL_USER o GMAIL_APP_PASSWORD no configurados en .env")
@@ -869,8 +1035,13 @@ def send_weekly_report(html: str, subject: str) -> bool:
             server.starttls()
             server.login(gmail_user, app_password)
             server.sendmail(gmail_user, recipient, msg.as_string())
-        logger.info(f"Informe semanal enviado a {recipient}")
+        logger.info(f"Correo HTML enviado a {recipient}")
         return True
     except Exception as e:
         logger.error(f"Error enviando email: {e}")
         return False
+
+
+def send_weekly_report(html: str, subject: str) -> bool:
+    """Compatibilidad: envía el HTML del informe al destinatario configurado."""
+    return send_html_email(html, subject)

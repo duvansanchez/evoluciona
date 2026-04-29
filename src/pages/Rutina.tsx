@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import {
   ChevronDown, ChevronLeft, ChevronRight, Plus, Sun, Sunset, Moon,
   CheckCircle2, Circle, Settings2, X, Pencil, Trash2, BookOpen, SkipForward,
@@ -99,6 +99,7 @@ export default function RutinaPage() {
   const [historialData, setHistorialData] = useState<RutinaAsignacion[]>([]);
   const [historialLoading, setHistorialLoading] = useState(false);
   const [skippedGoalsByDate, setSkippedGoalsByDate] = useState<Record<string, Set<string>>>({});
+  const [skippedGoalReasonByDate, setSkippedGoalReasonByDate] = useState<Record<string, Record<string, string>>>({});
   const [completedGoalsByDate, setCompletedGoalsByDate] = useState<Record<string, Set<string>>>({});
   const [skippedSubGoalsByDate, setSkippedSubGoalsByDate] = useState<Record<string, Set<string>>>({});
   const [subGoalsByGoalId, setSubGoalsByGoalId] = useState<Record<number, Array<{ id: number; titulo: string; completado: boolean }>>>({});
@@ -115,6 +116,12 @@ export default function RutinaPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [editingAssignmentGoals, setEditingAssignmentGoals] = useState<RutinaAsignacion | null>(null);
   const [assignmentGoalDraft, setAssignmentGoalDraft] = useState<Set<number>>(new Set());
+  const [assignmentSkippedGoalDraft, setAssignmentSkippedGoalDraft] = useState<Set<number>>(new Set());
+  const [assignmentSkipReasonDraft, setAssignmentSkipReasonDraft] = useState<Record<number, string>>({});
+  const [assignmentSkipReasonOriginal, setAssignmentSkipReasonOriginal] = useState<Record<number, string>>({});
+  const [assignmentSkipDialogGoal, setAssignmentSkipDialogGoal] = useState<{ id: number; title: string } | null>(null);
+  const [assignmentSkipDialogStep, setAssignmentSkipDialogStep] = useState<'choice' | 'reason'>('choice');
+  const [assignmentSkipDialogReason, setAssignmentSkipDialogReason] = useState('');
   const [savingAssignmentGoals, setSavingAssignmentGoals] = useState(false);
 
   // Confirmar eliminar rutina
@@ -134,14 +141,24 @@ export default function RutinaPage() {
       const results = await Promise.all(
         uniqueDates.map(async (date) => ({
           date,
-          ids: await goalsAPI.getSkippedGoals(date),
+          details: await goalsAPI.getSkippedGoalsDetails(date),
         }))
       );
 
       setSkippedGoalsByDate(prev => {
         const next = { ...prev };
-        results.forEach(({ date, ids }) => {
-          next[date] = new Set(ids.map(id => id.toString()));
+        results.forEach(({ date, details }) => {
+          next[date] = new Set(details.map(item => item.goal_id.toString()));
+        });
+        return next;
+      });
+      setSkippedGoalReasonByDate(prev => {
+        const next = { ...prev };
+        results.forEach(({ date, details }) => {
+          next[date] = details.reduce<Record<string, string>>((acc, item) => {
+            if (item.reason) acc[item.goal_id.toString()] = item.reason;
+            return acc;
+          }, {});
         });
         return next;
       });
@@ -255,28 +272,28 @@ export default function RutinaPage() {
 
   // ── Helpers de estado local ─────────────────────────────────────────────────
 
-  const getAsignacion = (fecha: string, parte_dia: string): RutinaAsignacion | undefined =>
-    semana.find(d => d.fecha === fecha)?.asignaciones.find(a => a.parte_dia === parte_dia);
+  const getAsignaciones = (fecha: string, parte_dia: string): RutinaAsignacion[] =>
+    (semana.find(d => d.fecha === fecha)?.asignaciones ?? [])
+      .filter(a => a.parte_dia === parte_dia)
+      .sort((a, b) => a.id - b.id);
 
   const updateSemanaLocal = (asignacion: RutinaAsignacion) => {
     setSemana(prev => prev.map(dia => {
       if (dia.fecha !== asignacion.fecha) return dia;
-      const existing = dia.asignaciones.find(a => a.parte_dia === asignacion.parte_dia);
+      const existing = dia.asignaciones.find(a => a.id === asignacion.id);
       return {
         ...dia,
         asignaciones: existing
-          ? dia.asignaciones.map(a => a.parte_dia === asignacion.parte_dia ? asignacion : a)
+          ? dia.asignaciones.map(a => a.id === asignacion.id ? asignacion : a)
           : [...dia.asignaciones, asignacion],
       };
     }));
   };
 
-  const removeAsignacionLocal = (fecha: string, parte_dia: string) => {
+  const removeAsignacionLocal = (asignacionId: number) => {
     setSemana(prev => prev.map(dia => ({
       ...dia,
-      asignaciones: dia.fecha === fecha
-        ? dia.asignaciones.filter(a => a.parte_dia !== parte_dia)
-        : dia.asignaciones,
+      asignaciones: dia.asignaciones.filter(a => a.id !== asignacionId),
     })));
   };
 
@@ -301,23 +318,107 @@ export default function RutinaPage() {
     return 'pending';
   };
 
+  const getGoalSkipReasonOnDate = (goalId: number, fecha: string) =>
+    skippedGoalReasonByDate[fecha]?.[goalId.toString()];
+
   const getGoalsForAssignment = (asignacion: RutinaAsignacion) => {
     const allGoals = asignacion.rutina.objetivos ?? [];
     if (!asignacion.objetivo_ids || asignacion.objetivo_ids.length === 0) {
       return allGoals;
     }
-    const selectedIds = new Set(asignacion.objetivo_ids);
-    return allGoals.filter(goal => selectedIds.has(goal.id));
+    const goalById = new Map(allGoals.map(goal => [goal.id, goal]));
+    return asignacion.objetivo_ids
+      .map(goalId => goalById.get(goalId))
+      .filter((goal): goal is (typeof allGoals)[number] => Boolean(goal));
   };
 
-  const openAssignmentGoalEditor = (asignacion: RutinaAsignacion) => {
+  const openAssignmentGoalEditor = async (asignacion: RutinaAsignacion) => {
     const goals = getGoalsForAssignment(asignacion);
     const completedSet = completedGoalsByDate[asignacion.fecha] ?? new Set<string>();
     const completedIds = goals
       .filter(goal => completedSet.has(goal.id.toString()))
       .map(goal => goal.id);
     setAssignmentGoalDraft(new Set(completedIds));
+    try {
+      const skippedEntries = await goalsAPI.getSkippedGoalsDetails(asignacion.fecha);
+      const skippedIds = new Set(
+        goals
+          .filter(goal => skippedEntries.some(entry => entry.goal_id === goal.id))
+          .map(goal => goal.id)
+      );
+      const reasonMap = skippedEntries.reduce<Record<number, string>>((acc, entry) => {
+        if (goals.some(goal => goal.id === entry.goal_id) && entry.reason) {
+          acc[entry.goal_id] = entry.reason;
+        }
+        return acc;
+      }, {});
+      setAssignmentSkippedGoalDraft(skippedIds);
+      setAssignmentSkipReasonDraft(reasonMap);
+      setAssignmentSkipReasonOriginal(reasonMap);
+    } catch (error) {
+      console.error('Error loading skipped goals for assignment editor:', error);
+      setAssignmentSkippedGoalDraft(new Set());
+      setAssignmentSkipReasonDraft({});
+      setAssignmentSkipReasonOriginal({});
+    }
     setEditingAssignmentGoals(asignacion);
+  };
+
+  const getAssignmentGoalDraftStatus = (goalId: number): 'completed' | 'skipped' | 'pending' => {
+    if (assignmentGoalDraft.has(goalId)) return 'completed';
+    if (assignmentSkippedGoalDraft.has(goalId)) return 'skipped';
+    return 'pending';
+  };
+
+  const applyAssignmentGoalSkipped = (goalId: number, reason?: string) => {
+    setAssignmentGoalDraft(prev => {
+      const next = new Set(prev);
+      next.delete(goalId);
+      return next;
+    });
+    setAssignmentSkippedGoalDraft(prev => new Set(prev).add(goalId));
+    setAssignmentSkipReasonDraft(prev => {
+      const next = { ...prev };
+      if (reason?.trim()) next[goalId] = reason.trim();
+      else delete next[goalId];
+      return next;
+    });
+  };
+
+  const clearAssignmentGoalStatus = (goalId: number) => {
+    setAssignmentGoalDraft(prev => {
+      const next = new Set(prev);
+      next.delete(goalId);
+      return next;
+    });
+    setAssignmentSkippedGoalDraft(prev => {
+      const next = new Set(prev);
+      next.delete(goalId);
+      return next;
+    });
+    setAssignmentSkipReasonDraft(prev => {
+      const next = { ...prev };
+      delete next[goalId];
+      return next;
+    });
+  };
+
+  const closeAssignmentSkipDialog = () => {
+    setAssignmentSkipDialogGoal(null);
+    setAssignmentSkipDialogStep('choice');
+    setAssignmentSkipDialogReason('');
+  };
+
+  const confirmAssignmentSkipWithoutReason = () => {
+    if (!assignmentSkipDialogGoal) return;
+    applyAssignmentGoalSkipped(assignmentSkipDialogGoal.id);
+    closeAssignmentSkipDialog();
+  };
+
+  const confirmAssignmentSkipWithReason = () => {
+    if (!assignmentSkipDialogGoal) return;
+    applyAssignmentGoalSkipped(assignmentSkipDialogGoal.id, assignmentSkipDialogReason);
+    closeAssignmentSkipDialog();
   };
 
   const handleSaveAssignmentGoals = async () => {
@@ -329,39 +430,68 @@ export default function RutinaPage() {
     const targetDate = editingAssignmentGoals.fecha || getLocalDateString();
     const currentCompletedSet = completedGoalsByDate[targetDate] ?? new Set<string>();
     const desiredCompletedSet = new Set(Array.from(assignmentGoalDraft).map(id => id.toString()));
+    const currentSkippedSet = skippedGoalsByDate[targetDate] ?? new Set<string>();
+    const desiredSkippedSet = new Set(Array.from(assignmentSkippedGoalDraft).map(id => id.toString()));
 
     setSavingAssignmentGoals(true);
     try {
-      const completionOps: Array<Promise<unknown>> = [];
+      const goalOps: Array<Promise<unknown>> = [];
       goals.forEach(goal => {
         const goalId = goal.id.toString();
         const isCurrentlyCompleted = currentCompletedSet.has(goalId);
         const shouldBeCompleted = desiredCompletedSet.has(goalId);
+        const isCurrentlySkipped = currentSkippedSet.has(goalId);
+        const shouldBeSkipped = desiredSkippedSet.has(goalId);
+        const nextSkipReason = assignmentSkipReasonDraft[goal.id]?.trim() || undefined;
+        const originalSkipReason = assignmentSkipReasonOriginal[goal.id]?.trim() || undefined;
 
-        if (isCurrentlyCompleted === shouldBeCompleted) return;
-        completionOps.push(
-          shouldBeCompleted
-            ? goalsAPI.completeGoalForDate(goal.id, targetDate)
-            : goalsAPI.uncompleteGoalForDate(goal.id, targetDate)
-        );
+        if (shouldBeCompleted) {
+          if (isCurrentlySkipped) goalOps.push(goalsAPI.unskipGoalForDate(goal.id, targetDate));
+          if (!isCurrentlyCompleted) goalOps.push(goalsAPI.completeGoalForDate(goal.id, targetDate));
+          return;
+        }
+
+        if (shouldBeSkipped) {
+          if (isCurrentlyCompleted) goalOps.push(goalsAPI.uncompleteGoalForDate(goal.id, targetDate));
+          if (!isCurrentlySkipped || nextSkipReason !== originalSkipReason) {
+            goalOps.push(goalsAPI.skipGoalForDate(goal.id, targetDate, nextSkipReason));
+          }
+          return;
+        }
+
+        if (isCurrentlyCompleted) goalOps.push(goalsAPI.uncompleteGoalForDate(goal.id, targetDate));
+        if (isCurrentlySkipped) goalOps.push(goalsAPI.unskipGoalForDate(goal.id, targetDate));
       });
 
-      const completionResults = await Promise.allSettled(completionOps);
-      const failedCompletions = completionResults.filter(result => result.status === 'rejected').length;
+      const operationResults = await Promise.allSettled(goalOps);
+      const failedOperations = operationResults.filter(result => result.status === 'rejected').length;
 
       let refreshedCompletedSet = desiredCompletedSet;
+      let refreshedSkippedSet = desiredSkippedSet;
       try {
-        const completedEntries = await goalsAPI.getCompletedGoals(targetDate);
+        const [completedEntries, skippedEntries] = await Promise.all([
+          goalsAPI.getCompletedGoals(targetDate),
+          goalsAPI.getSkippedGoalsDetails(targetDate),
+        ]);
         refreshedCompletedSet = new Set(completedEntries.map(entry => entry.goal_id.toString()));
+        refreshedSkippedSet = new Set(skippedEntries.map(entry => entry.goal_id.toString()));
         setCompletedGoalsByDate(prev => ({
           ...prev,
           [targetDate]: refreshedCompletedSet,
         }));
+        setSkippedGoalsByDate(prev => ({
+          ...prev,
+          [targetDate]: refreshedSkippedSet,
+        }));
       } catch (refreshError) {
-        console.error('Error refreshing completed goals after assignment goal update:', refreshError);
+        console.error('Error refreshing assignment goal states after update:', refreshError);
         setCompletedGoalsByDate(prev => ({
           ...prev,
           [targetDate]: refreshedCompletedSet,
+        }));
+        setSkippedGoalsByDate(prev => ({
+          ...prev,
+          [targetDate]: refreshedSkippedSet,
         }));
       }
 
@@ -375,16 +505,16 @@ export default function RutinaPage() {
 
       setEditingAssignmentGoals(null);
 
-      if (failedCompletions > 0) {
+      if (failedOperations > 0) {
         toast({
           title: 'Actualización parcial',
-          description: `Se aplicaron cambios, pero ${failedCompletions} objetivo(s) no se pudo/pudieron sincronizar.`,
+          description: `Se aplicaron cambios, pero ${failedOperations} objetivo(s) no se pudo/pudieron sincronizar.`,
           variant: 'destructive',
         });
       } else {
         toast({
           title: 'Objetivos actualizados',
-          description: `${assignmentGoalDraft.size} objetivo(s) marcado(s) como completados para esta rutina.`,
+          description: `${assignmentGoalDraft.size} completado(s), ${assignmentSkippedGoalDraft.size} saltado(s).`,
         });
       }
     } catch (error) {
@@ -475,44 +605,6 @@ export default function RutinaPage() {
     setPicker(null);
   };
 
-  const handleDragEnd = async (result: DropResult) => {
-    const { destination, draggableId, source } = result;
-    if (!destination) return;
-    if (!destination.droppableId.startsWith('cell:')) return;
-
-    const [, fecha, parte_dia] = destination.droppableId.split(':');
-    if (draggableId.startsWith('rutina:')) {
-      const rutinaId = Number(draggableId.replace('rutina:', ''));
-      const rutina = rutinas.find(item => item.id === rutinaId);
-
-      if (!rutina || rutina.parte_dia !== parte_dia) return;
-      await assignRutinaToSlot(rutinaId, fecha, parte_dia);
-      return;
-    }
-
-    if (!draggableId.startsWith('assignment:')) return;
-
-    if (source.droppableId === destination.droppableId) return;
-
-    const assignmentId = Number(draggableId.replace('assignment:', ''));
-    const assignment = semana.flatMap(dia => dia.asignaciones).find(item => item.id === assignmentId);
-
-    if (!assignment || assignment.rutina.parte_dia !== parte_dia) return;
-
-    const targetAssignment = getAsignacion(fecha, parte_dia);
-    if (targetAssignment && targetAssignment.id !== assignmentId) return;
-
-    try {
-      const updated = await rutinasAPI.updateAsignacion(assignmentId, { fecha, parte_dia });
-      setSemana(prev => prev.map(dia => ({
-        ...dia,
-        asignaciones: dia.asignaciones.filter(item => item.id !== assignmentId),
-      })).map(dia => dia.fecha === updated.fecha ? { ...dia, asignaciones: [...dia.asignaciones, updated] } : dia));
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const renderAssignmentCard = (asignacion: RutinaAsignacion, iso: string, skippedCount: number, isNeutralBySkips: boolean) => (
     <div className="h-full flex flex-col gap-1">
       <div
@@ -535,6 +627,11 @@ export default function RutinaPage() {
             {skippedCount > 0 && ` · ${skippedCount} saltado${skippedCount !== 1 ? 's' : ''}`}
           </p>
         )}
+        {asignacion.rutina.duracion_proyectada_minutos ? (
+          <p className="text-[10px] text-muted-foreground mt-1 pl-4">
+            ⏱ {asignacion.rutina.duracion_proyectada_minutos} min proyectados
+          </p>
+        ) : null}
         {isNeutralBySkips && (
           <p className="text-[10px] text-amber-600 mt-1 pl-4 font-medium">
             Rutina nula hoy: todos los objetivos se saltaron
@@ -588,6 +685,7 @@ export default function RutinaPage() {
         <div className="rounded-lg bg-muted/50 p-2 space-y-1 animate-fade-in">
           {getGoalsForAssignment(asignacion).map(g => {
             const goalStatus = getGoalStatusOnDate(g.id, iso);
+            const goalSkipReason = getGoalSkipReasonOnDate(g.id, iso);
             const goalSubGoals = subGoalsByGoalId[g.id] ?? [];
 
             return (
@@ -603,10 +701,17 @@ export default function RutinaPage() {
                     </span>
                   )}
                   {goalStatus === 'skipped' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600">
-                      <SkipForward className="h-2.5 w-2.5" />
-                      Saltado
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-medium text-amber-600">
+                        <SkipForward className="h-2.5 w-2.5" />
+                        Saltado
+                      </span>
+                      {goalSkipReason ? (
+                        <span className="max-w-[180px] text-right text-[9px] text-amber-700 dark:text-amber-300">
+                          Motivo: {goalSkipReason}
+                        </span>
+                      ) : null}
+                    </div>
                   )}
                   {goalStatus === 'pending' && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[9px] font-medium text-red-600">
@@ -702,7 +807,7 @@ export default function RutinaPage() {
   const handleQuitarAsignacion = async (asignacion: RutinaAsignacion) => {
     try {
       await rutinasAPI.deleteAsignacion(asignacion.id);
-      removeAsignacionLocal(asignacion.fecha, asignacion.parte_dia);
+      removeAsignacionLocal(asignacion.id);
       if (expandedId === asignacion.id) setExpandedId(null);
     } catch (e) {
       console.error(e);
@@ -710,16 +815,20 @@ export default function RutinaPage() {
   };
 
   const syncObjetivos = async (rutina: Rutina, newIds: number[]) => {
-    const currentIds = new Set((rutina.objetivos ?? []).map(g => g.id));
-    const toAdd = newIds.filter(id => !currentIds.has(id));
-    const toRemove = [...currentIds].filter(id => !newIds.includes(id));
-    await Promise.all([
-      ...toAdd.map(id => rutinasAPI.addObjetivo(rutina.id, id)),
-      ...toRemove.map(id => rutinasAPI.removeObjetivo(rutina.id, id)),
-    ]);
+    const currentIds = (rutina.objetivos ?? []).map(g => g.id);
+    const hasSameLength = currentIds.length === newIds.length;
+    const hasSameOrder = hasSameLength && currentIds.every((id, index) => id === newIds[index]);
+    if (hasSameOrder) return;
+
+    for (const goalId of currentIds) {
+      await rutinasAPI.removeObjetivo(rutina.id, goalId);
+    }
+    for (const goalId of newIds) {
+      await rutinasAPI.addObjetivo(rutina.id, goalId);
+    }
   };
 
-  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; color?: string; categoria?: string; descripcion?: string; dias_semana: number[]; objetivoIds: number[] }) => {
+  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; color?: string; categoria?: string; descripcion?: string; duracion_proyectada_minutos?: number; dias_semana: number[]; objetivoIds: number[] }) => {
     const { objetivoIds, ...rutinaData } = data;
     if (editingRutina) {
       const updated = await rutinasAPI.updateRutina(editingRutina.id, rutinaData);
@@ -811,7 +920,7 @@ export default function RutinaPage() {
   };
 
   return (
-    <DragDropContext onDragEnd={result => { void handleDragEnd(result); }}>
+    <DragDropContext onDragEnd={() => {}}>
     <div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -906,48 +1015,33 @@ export default function RutinaPage() {
             {/* Celdas */}
             {weekDates.map(date => {
               const iso = toISODate(date);
-              const asignacion = getAsignacion(iso, parte);
+              const asignaciones = getAsignaciones(iso, parte);
               const today = isToday(iso);
-              const stats = asignacion
-                ? getAssignmentSkipStats(asignacion, iso)
-                : { skippedCount: 0, isNeutralBySkips: false };
 
               return (
-                <Droppable key={`${iso}-${parte}`} droppableId={`cell:${iso}:${parte}`}>
-                  {(provided, snapshot) => (
                 <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className={`border-l border-border p-1.5 min-h-[80px] ${today ? 'bg-primary/5' : ''} ${snapshot.isDraggingOver ? 'ring-2 ring-primary/30 bg-primary/10' : ''}`}
+                  key={`${iso}-${parte}`}
+                  className={`border-l border-border p-1.5 min-h-[80px] ${today ? 'bg-primary/5' : ''}`}
                 >
-                  {asignacion ? (
-                    <Draggable draggableId={`assignment:${asignacion.id}`} index={0}>
-                      {(dragProvided, dragSnapshot) => {
-                        const card = (
-                          <div
-                            ref={dragProvided.innerRef}
-                            {...dragProvided.draggableProps}
-                            {...dragProvided.dragHandleProps}
-                            className={`${dragSnapshot.isDragging ? 'rotate-[0.5deg] shadow-2xl' : ''}`}
-                            style={dragProvided.draggableProps.style}
-                          >
-                            {renderAssignmentCard(asignacion, iso, stats.skippedCount, stats.isNeutralBySkips)}
-                          </div>
-                        );
-                        return dragSnapshot.isDragging ? createPortal(card, document.body) : card;
-                      }}
-                    </Draggable>
-                  ) : (
-                     <button
-                       onClick={() => { setDefaultParteDia(parte); setPicker({ fecha: iso, parte_dia: parte }); }}
-                       className="w-full h-full min-h-[64px] flex items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
-                     >
-                       <Plus className="h-4 w-4" />
-                     </button>
-                  )}
+                  <div className="space-y-1.5">
+                    {asignaciones.map(asignacion => {
+                      const stats = getAssignmentSkipStats(asignacion, iso);
+                      return (
+                        <div key={asignacion.id}>
+                          {renderAssignmentCard(asignacion, iso, stats.skippedCount, stats.isNeutralBySkips)}
+                        </div>
+                      );
+                    })}
+
+                    <button
+                      onClick={() => { setDefaultParteDia(parte); setPicker({ fecha: iso, parte_dia: parte }); }}
+                      className={`w-full min-h-[44px] flex items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors ${asignaciones.length === 0 ? 'h-full min-h-[64px]' : ''}`}
+                      title="Agregar rutina"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-                  )}
-                </Droppable>
               );
             })}
           </div>
@@ -1187,7 +1281,7 @@ export default function RutinaPage() {
                          ? (rutina.dias_semana ?? []).map(day => DAY_LABELS_ASCII[day]).join(' · ')
                          : null;
                        return (
-                         <Draggable key={rutina.id} draggableId={`rutina:${rutina.id}`} index={currentIndex}>
+                         <Draggable key={rutina.id} draggableId={`rutina:${rutina.id}`} index={currentIndex} isDragDisabled>
                            {(dragProvided, dragSnapshot) => (
                              (() => {
                                const card = (
@@ -1303,7 +1397,7 @@ export default function RutinaPage() {
                                 ? (rutina.dias_semana ?? []).map(day => DAY_LABELS_ASCII[day]).join(' · ')
                                 : null;
                               return (
-                                <Draggable key={rutina.id} draggableId={`rutina:${rutina.id}`} index={currentIndex}>
+                                <Draggable key={rutina.id} draggableId={`rutina:${rutina.id}`} index={currentIndex} isDragDisabled>
                                   {(dragProvided, dragSnapshot) => (
                                     (() => {
                                       const card = (
@@ -1478,57 +1572,93 @@ export default function RutinaPage() {
 
             <div className="px-4 py-3 max-h-80 overflow-y-auto space-y-2">
               <div className="flex items-center justify-between pb-2 border-b border-border/70">
-                <span className="text-xs text-muted-foreground">
-                  {assignmentGoalDraft.size} completado(s)
-                </span>
+                  <span className="text-xs text-muted-foreground">
+                    {assignmentGoalDraft.size} completado(s) · {assignmentSkippedGoalDraft.size} saltado(s)
+                  </span>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       const allIds = getGoalsForAssignment(editingAssignmentGoals).map(goal => goal.id);
                       setAssignmentGoalDraft(new Set(allIds));
+                      setAssignmentSkippedGoalDraft(new Set());
+                      setAssignmentSkipReasonDraft({});
                     }}
                     className="text-xs text-primary hover:underline"
                   >
                     Marcar todos
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setAssignmentGoalDraft(new Set())}
-                    className="text-xs text-muted-foreground hover:text-foreground hover:underline"
-                  >
-                    Desmarcar todos
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentGoalDraft(new Set());
+                        setAssignmentSkippedGoalDraft(new Set());
+                        setAssignmentSkipReasonDraft({});
+                      }}
+                      className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      Limpiar estados
+                    </button>
+                  </div>
                 </div>
-              </div>
 
               {getGoalsForAssignment(editingAssignmentGoals).map(goal => {
-                const checked = assignmentGoalDraft.has(goal.id);
+                const status = getAssignmentGoalDraftStatus(goal.id);
+                const skipReason = assignmentSkipReasonDraft[goal.id];
                 return (
-                  <button
+                  <div
                     key={goal.id}
-                    type="button"
-                    onClick={() => {
-                      setAssignmentGoalDraft(prev => {
-                        const next = new Set(prev);
-                        if (checked) {
-                          next.delete(goal.id);
-                        } else {
-                          next.add(goal.id);
-                        }
-                        return next;
-                      });
-                    }}
-                    className={`w-full flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
-                      checked
-                        ? 'border-green-500/60 bg-green-500/10 text-green-700 dark:text-green-300'
-                        : 'border-border bg-background text-foreground hover:bg-muted'
+                    className={`w-full rounded-xl border px-3 py-2 text-left transition-colors ${
+                      status === 'completed'
+                        ? 'border-green-500/60 bg-green-500/10'
+                        : status === 'skipped'
+                          ? 'border-amber-500/60 bg-amber-500/10'
+                          : 'border-border bg-background'
                     }`}
                   >
-                    <span className="text-sm">{goal.icono || '🎯'}</span>
-                    <span className="text-sm font-medium flex-1 truncate">{goal.titulo}</span>
-                    {checked ? <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-300" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
-                  </button>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{goal.icono || '🎯'}</span>
+                      <span className="text-sm font-medium flex-1 truncate text-foreground">{goal.titulo}</span>
+                      {status === 'completed' ? <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-300" /> : status === 'skipped' ? <SkipForward className="h-4 w-4 text-amber-600" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssignmentSkippedGoalDraft(prev => {
+                            const next = new Set(prev);
+                            next.delete(goal.id);
+                            return next;
+                          });
+                          setAssignmentGoalDraft(prev => new Set(prev).add(goal.id));
+                        }}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${status === 'completed' ? 'bg-green-600 text-white' : 'border border-border text-foreground hover:bg-muted'}`}
+                      >
+                        Completar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssignmentSkipDialogGoal({ id: goal.id, title: goal.titulo });
+                          setAssignmentSkipDialogStep('choice');
+                          setAssignmentSkipDialogReason(assignmentSkipReasonDraft[goal.id] || '');
+                        }}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${status === 'skipped' ? 'bg-amber-600 text-white' : 'border border-border text-foreground hover:bg-muted'}`}
+                      >
+                        Saltar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => clearAssignmentGoalStatus(goal.id)}
+                        className={`rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${status === 'pending' ? 'bg-muted text-foreground' : 'border border-border text-foreground hover:bg-muted'}`}
+                      >
+                        Pendiente
+                      </button>
+                    </div>
+                    {status === 'skipped' && skipReason ? (
+                      <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">Motivo: {skipReason}</p>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -1547,6 +1677,67 @@ export default function RutinaPage() {
               >
                 {savingAssignmentGoals ? 'Guardando...' : 'Guardar'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assignmentSkipDialogGoal && (
+        <div className="fixed inset-0 z-[340] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeAssignmentSkipDialog} />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl">
+            <div className="h-1.5 w-full bg-gradient-to-r from-amber-500/70 via-amber-500 to-amber-500/70" />
+            <div className="space-y-4 p-5">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold">Saltar objetivo en esta rutina</h3>
+                <p className="text-sm text-muted-foreground">
+                  {`Puedes saltar "${assignmentSkipDialogGoal.title}" con o sin explicación para esta fecha.`}
+                </p>
+              </div>
+
+              {assignmentSkipDialogStep === 'choice' ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={confirmAssignmentSkipWithoutReason}
+                    className="w-full rounded-xl border border-border bg-card px-3 py-3 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <div className="font-medium text-foreground">Saltar sin explicar</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">No se guarda ningún motivo.</div>
+                  </button>
+                  <button
+                    onClick={() => setAssignmentSkipDialogStep('reason')}
+                    className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-left text-sm transition-colors hover:bg-amber-500/10"
+                  >
+                    <div className="font-medium text-foreground">Sí, explicar</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">Añade un motivo breve para registrarlo en esta fecha.</div>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={assignmentSkipDialogReason}
+                    onChange={(e) => setAssignmentSkipDialogReason(e.target.value)}
+                    placeholder="Cuéntame por qué lo saltas (opcional)"
+                    rows={4}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <div className="text-right text-[11px] text-muted-foreground">{assignmentSkipDialogReason.trim().length}/280</div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setAssignmentSkipDialogStep('choice')}
+                      className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      onClick={confirmAssignmentSkipWithReason}
+                      className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700"
+                    >
+                      Guardar y saltar
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
