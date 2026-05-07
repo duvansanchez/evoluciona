@@ -472,7 +472,8 @@ def _build_routine_breakdown(
 
     for routine_id, items in sorted(by_routine.items(), key=lambda pair: len(pair[1]), reverse=True):
         routine = items[0].rutina if items and items[0].rutina else routine_lookup.get(routine_id)
-        routine_goals = list(routine.objetivos) if routine else []
+        disabled_goal_ids = set(json.loads(routine.objetivo_ids_desactivados) if routine and routine.objetivo_ids_desactivados else [])
+        routine_goals = [goal for goal in list(routine.objetivos) if goal.id not in disabled_goal_ids] if routine else []
         goal_count = len(routine_goals)
 
         day_entries: list[dict[str, Any]] = []

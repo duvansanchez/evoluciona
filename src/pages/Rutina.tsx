@@ -111,6 +111,8 @@ export default function RutinaPage() {
 
   // Picker de asignación (selector de rutina para una celda)
   const [picker, setPicker] = useState<{ fecha: string; parte_dia: string } | null>(null);
+  const [pickerSelectedRutina, setPickerSelectedRutina] = useState<Rutina | null>(null);
+  const [pickerSelectedParts, setPickerSelectedParts] = useState<Set<string>>(new Set());
 
   // Detalle de asignación expandido
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -120,6 +122,9 @@ export default function RutinaPage() {
   const [assignmentSkipReasonDraft, setAssignmentSkipReasonDraft] = useState<Record<number, string>>({});
   const [assignmentSkipReasonOriginal, setAssignmentSkipReasonOriginal] = useState<Record<number, string>>({});
   const [assignmentSkipDialogGoal, setAssignmentSkipDialogGoal] = useState<{ id: number; title: string } | null>(null);
+  const [assignmentSkipAllDialogOpen, setAssignmentSkipAllDialogOpen] = useState(false);
+  const [assignmentSkipAllDialogStep, setAssignmentSkipAllDialogStep] = useState<'choice' | 'reason'>('choice');
+  const [assignmentSkipAllDialogReason, setAssignmentSkipAllDialogReason] = useState('');
   const [assignmentSkipDialogStep, setAssignmentSkipDialogStep] = useState<'choice' | 'reason'>('choice');
   const [assignmentSkipDialogReason, setAssignmentSkipDialogReason] = useState('');
   const [savingAssignmentGoals, setSavingAssignmentGoals] = useState(false);
@@ -323,13 +328,14 @@ export default function RutinaPage() {
 
   const getGoalsForAssignment = (asignacion: RutinaAsignacion) => {
     const allGoals = asignacion.rutina.objetivos ?? [];
+    const disabledIds = new Set(asignacion.rutina.objetivo_ids_desactivados ?? []);
     if (!asignacion.objetivo_ids || asignacion.objetivo_ids.length === 0) {
-      return allGoals;
+      return allGoals.filter(goal => !disabledIds.has(goal.id));
     }
     const goalById = new Map(allGoals.map(goal => [goal.id, goal]));
     return asignacion.objetivo_ids
       .map(goalId => goalById.get(goalId))
-      .filter((goal): goal is (typeof allGoals)[number] => Boolean(goal));
+      .filter((goal): goal is (typeof allGoals)[number] => Boolean(goal) && !disabledIds.has(goal.id));
   };
 
   const openAssignmentGoalEditor = async (asignacion: RutinaAsignacion) => {
@@ -385,6 +391,19 @@ export default function RutinaPage() {
     });
   };
 
+  const applyAssignmentAllGoalsSkipped = (reason?: string) => {
+    if (!editingAssignmentGoals) return;
+    const goalIds = getGoalsForAssignment(editingAssignmentGoals).map(goal => goal.id);
+    setAssignmentGoalDraft(new Set());
+    setAssignmentSkippedGoalDraft(new Set(goalIds));
+    setAssignmentSkipReasonDraft(
+      goalIds.reduce<Record<number, string>>((acc, goalId) => {
+        if (reason?.trim()) acc[goalId] = reason.trim();
+        return acc;
+      }, {})
+    );
+  };
+
   const clearAssignmentGoalStatus = (goalId: number) => {
     setAssignmentGoalDraft(prev => {
       const next = new Set(prev);
@@ -419,6 +438,22 @@ export default function RutinaPage() {
     if (!assignmentSkipDialogGoal) return;
     applyAssignmentGoalSkipped(assignmentSkipDialogGoal.id, assignmentSkipDialogReason);
     closeAssignmentSkipDialog();
+  };
+
+  const closeAssignmentSkipAllDialog = () => {
+    setAssignmentSkipAllDialogOpen(false);
+    setAssignmentSkipAllDialogStep('choice');
+    setAssignmentSkipAllDialogReason('');
+  };
+
+  const confirmAssignmentSkipAllWithoutReason = () => {
+    applyAssignmentAllGoalsSkipped();
+    closeAssignmentSkipAllDialog();
+  };
+
+  const confirmAssignmentSkipAllWithReason = () => {
+    applyAssignmentAllGoalsSkipped(assignmentSkipAllDialogReason);
+    closeAssignmentSkipAllDialog();
   };
 
   const handleSaveAssignmentGoals = async () => {
@@ -539,7 +574,9 @@ export default function RutinaPage() {
               id: Number(sub.id),
               titulo: sub.titulo,
               completado: Boolean(sub.completado),
+              activa: sub.activa !== false,
             }))
+            .filter((sub: any) => sub.activa !== false)
           : [],
       }));
     } catch (error) {
@@ -602,6 +639,16 @@ export default function RutinaPage() {
   const handleAsignar = async (rutinaId: number) => {
     if (!picker) return;
     await assignRutinaToSlot(rutinaId, picker.fecha, picker.parte_dia);
+    setPicker(null);
+  };
+
+  const handleAssignRutinaToMultipleParts = async () => {
+    if (!picker || !pickerSelectedRutina) return;
+    const parts = Array.from(pickerSelectedParts);
+    if (parts.length === 0) return;
+    await Promise.all(parts.map(part => assignRutinaToSlot(pickerSelectedRutina.id, picker.fecha, part)));
+    setPickerSelectedRutina(null);
+    setPickerSelectedParts(new Set());
     setPicker(null);
   };
 
@@ -730,6 +777,9 @@ export default function RutinaPage() {
                         <div key={sub.id} className="flex items-center gap-1.5">
                           <span className="text-[9px] text-muted-foreground">•</span>
                           <p className="text-[9px] text-foreground/90 truncate flex-1">{sub.titulo}</p>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-semibold ${sub.recurrente ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                            {sub.recurrente ? 'Recurrente' : 'Normal'}
+                          </span>
                           {subCompleted ? (
                             <span className="text-[9px] font-medium text-green-600">Completado</span>
                           ) : subSkipped ? (
@@ -828,10 +878,10 @@ export default function RutinaPage() {
     }
   };
 
-  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; color?: string; categoria?: string; descripcion?: string; duracion_proyectada_minutos?: number; dias_semana: number[]; objetivoIds: number[] }) => {
-    const { objetivoIds, ...rutinaData } = data;
+  const handleSaveRutina = async (data: { nombre: string; parte_dia: string; partes_dia: string[]; color?: string; categoria?: string; descripcion?: string; duracion_proyectada_minutos?: number; dias_semana: number[]; objetivoIds: number[]; disabledGoalIds: number[] }) => {
+    const { objetivoIds, disabledGoalIds, ...rutinaData } = data;
     if (editingRutina) {
-      const updated = await rutinasAPI.updateRutina(editingRutina.id, rutinaData);
+      const updated = await rutinasAPI.updateRutina(editingRutina.id, { ...rutinaData, objetivo_ids_desactivados: disabledGoalIds });
       await syncObjetivos(updated, objetivoIds);
       const fresh = await rutinasAPI.getRutinas();
       setRutinas(fresh);
@@ -843,7 +893,7 @@ export default function RutinaPage() {
       })));
       fetchSemana(weekStart);
     } else {
-      const created = await rutinasAPI.createRutina(rutinaData);
+      const created = await rutinasAPI.createRutina({ ...rutinaData, objetivo_ids_desactivados: disabledGoalIds });
       if (objetivoIds.length > 0) await syncObjetivos(created, objetivoIds);
       const fresh = await rutinasAPI.getRutinas();
       setRutinas(fresh);
@@ -863,7 +913,7 @@ export default function RutinaPage() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   const pickerRutinas = picker
-    ? rutinas.filter(r => r.parte_dia === picker.parte_dia)
+    ? rutinas.filter(r => (r.partes_dia?.length ? r.partes_dia : [r.parte_dia]).includes(picker.parte_dia as 'morning' | 'afternoon' | 'evening'))
     : [];
 
   const filteredRutinas = useMemo(() => (
@@ -1034,7 +1084,12 @@ export default function RutinaPage() {
                     })}
 
                     <button
-                      onClick={() => { setDefaultParteDia(parte); setPicker({ fecha: iso, parte_dia: parte }); }}
+                      onClick={() => {
+                        setDefaultParteDia(parte);
+                        setPickerSelectedRutina(null);
+                        setPickerSelectedParts(new Set([parte]));
+                        setPicker({ fecha: iso, parte_dia: parte });
+                      }}
                       className={`w-full min-h-[44px] flex items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors ${asignaciones.length === 0 ? 'h-full min-h-[64px]' : ''}`}
                       title="Agregar rutina"
                     >
@@ -1260,7 +1315,10 @@ export default function RutinaPage() {
                       <>
                     {PARTES.map(({ value: parteValue, label: parteLabel, icon: ParteIcon, colorClass }) => {
                       const itemsByParte = items
-                        .filter(rutina => rutina.parte_dia === parteValue)
+                        .filter(rutina => {
+                          const rutinaParts = rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia];
+                          return rutinaParts.length === 1 && rutinaParts.includes(parteValue);
+                        })
                         .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
                       if (itemsByParte.length === 0) return null;
 
@@ -1275,8 +1333,11 @@ export default function RutinaPage() {
                       {itemsByParte.map(rutina => {
                         const currentIndex = dragIndex;
                         dragIndex += 1;
-                        const parte = PARTES.find(p => p.value === rutina.parte_dia);
+                        const rutinaParts = rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia];
+                        const parte = PARTES.find(p => p.value === rutinaParts[0]);
                         const PartIcon = parte?.icon ?? Sun;
+                        const partsLabel = rutinaParts.map(part => PARTES.find(p => p.value === part)?.label || part).join(' · ');
+                        const isMultiPart = rutinaParts.length > 1;
                         const weeklyLabel = (rutina.dias_semana ?? []).length > 0
                          ? (rutina.dias_semana ?? []).map(day => DAY_LABELS_ASCII[day]).join(' · ')
                          : null;
@@ -1303,10 +1364,15 @@ export default function RutinaPage() {
                                            </span>
                                          )}
                                        </div>
-                                       <div className={`flex items-center gap-1 mt-1 ${parte?.colorClass}`}>
-                                         <PartIcon className="h-3 w-3" />
-                                         <span className="text-xs font-medium">{parte?.label}</span>
-                                       </div>
+                                        <div className={`flex flex-wrap items-center gap-1.5 mt-1 ${parte?.colorClass}`}>
+                                          <PartIcon className="h-3 w-3" />
+                                          <span className="text-xs font-medium">{partsLabel}</span>
+                                          {isMultiPart && (
+                                            <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                              Multi-franja
+                                            </span>
+                                          )}
+                                        </div>
                                        {rutina.descripcion && (
                                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{rutina.descripcion}</p>
                                        )}
@@ -1374,25 +1440,27 @@ export default function RutinaPage() {
                     })}
 
                     {items
-                      .filter(rutina => !(rutina.parte_dia in parteOrder))
+                      .filter(rutina => (rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia]).length > 1)
                       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
                       .length > 0 && (
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5 pl-1">
-                          <span className="text-[11px] font-semibold text-muted-foreground">Sin parte del día</span>
+                          <span className="text-[11px] font-semibold text-primary">Multi-franja</span>
                           <span className="text-[10px] text-muted-foreground">
-                            ({items.filter(rutina => !(rutina.parte_dia in parteOrder)).length})
+                            ({items.filter(rutina => (rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia]).length > 1).length})
                           </span>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {items
-                            .filter(rutina => !(rutina.parte_dia in parteOrder))
+                            .filter(rutina => (rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia]).length > 1)
                             .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
                             .map(rutina => {
                               const currentIndex = dragIndex;
                               dragIndex += 1;
-                              const parte = PARTES.find(p => p.value === rutina.parte_dia);
+                              const rutinaParts = rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia];
+                              const parte = PARTES.find(p => p.value === rutinaParts[0]);
                               const PartIcon = parte?.icon ?? Sun;
+                              const partsLabel = rutinaParts.map(part => PARTES.find(p => p.value === part)?.label || part).join(' · ');
                               const weeklyLabel = (rutina.dias_semana ?? []).length > 0
                                 ? (rutina.dias_semana ?? []).map(day => DAY_LABELS_ASCII[day]).join(' · ')
                                 : null;
@@ -1419,9 +1487,144 @@ export default function RutinaPage() {
                                                   </span>
                                                 )}
                                               </div>
-                                              <div className={`flex items-center gap-1 mt-1 ${parte?.colorClass}`}>
+                                              <div className={`flex flex-wrap items-center gap-1.5 mt-1 ${parte?.colorClass}`}>
                                                 <PartIcon className="h-3 w-3" />
-                                                <span className="text-xs font-medium">{parte?.label}</span>
+                                                <span className="text-xs font-medium">{partsLabel}</span>
+                                                <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                                  Multi-franja
+                                                </span>
+                                              </div>
+                                              {rutina.descripcion && (
+                                                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{rutina.descripcion}</p>
+                                              )}
+                                              {weeklyLabel && (
+                                                <p className="text-[11px] text-primary mt-1">Se repite: {weeklyLabel}</p>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {(rutina.objetivos ?? []).length > 0 && (
+                                            <div className="space-y-1">
+                                              {rutina.objetivos.map(g => (
+                                                <div key={g.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                  <span className="flex-shrink-0">{g.icono || '🎯'}</span>
+                                                  <span className="flex-1 truncate">{g.titulo}</span>
+                                                  {g.frecuencia && <span className="flex-shrink-0 text-[10px] capitalize">{g.frecuencia}</span>}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+
+                                          <div className="flex items-center gap-2 mt-auto pt-1 border-t border-border">
+                                            <button
+                                              onClick={() => { setEditingRutina(rutina); setShowRutinaModal(true); }}
+                                              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                            >
+                                              <Pencil className="h-3.5 w-3.5" />
+                                              Editar
+                                            </button>
+                                            <button
+                                              onClick={() => setDeletingRutinaId(rutina.id)}
+                                              className="flex items-center gap-1.5 text-xs text-destructive/70 hover:text-destructive transition-colors ml-auto"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              Eliminar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+
+                                      if (dragSnapshot.isDragging) {
+                                        return createPortal(
+                                          <div
+                                            ref={dragProvided.innerRef}
+                                            {...dragProvided.draggableProps}
+                                            {...dragProvided.dragHandleProps}
+                                            style={dragProvided.draggableProps.style}
+                                            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-xl ring-2 ring-primary/30 max-w-[200px]"
+                                          >
+                                            <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${COLOR_BG[rutina.color || 'blue']}`} />
+                                            <span className="text-xs font-semibold text-foreground truncate">{rutina.nombre}</span>
+                                          </div>,
+                                          document.body
+                                        );
+                                      }
+                                      return card;
+                                    })()
+                                  )}
+                                </Draggable>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+
+                    {items
+                      .filter(rutina => {
+                        const primaryPart = rutina.partes_dia?.length ? rutina.partes_dia[0] : rutina.parte_dia;
+                        return !(primaryPart in parteOrder);
+                      })
+                      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+                      .length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5 pl-1">
+                          <span className="text-[11px] font-semibold text-muted-foreground">Sin parte del día</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({items.filter(rutina => {
+                              const primaryPart = rutina.partes_dia?.length ? rutina.partes_dia[0] : rutina.parte_dia;
+                              return !(primaryPart in parteOrder);
+                            }).length})
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {items
+                            .filter(rutina => {
+                              const primaryPart = rutina.partes_dia?.length ? rutina.partes_dia[0] : rutina.parte_dia;
+                              return !(primaryPart in parteOrder);
+                            })
+                            .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'))
+                            .map(rutina => {
+                              const currentIndex = dragIndex;
+                              dragIndex += 1;
+                              const rutinaParts = rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia];
+                              const parte = PARTES.find(p => p.value === rutinaParts[0]);
+                              const PartIcon = parte?.icon ?? Sun;
+                              const partsLabel = rutinaParts.map(part => PARTES.find(p => p.value === part)?.label || part).join(' · ');
+                              const isMultiPart = rutinaParts.length > 1;
+                              const weeklyLabel = (rutina.dias_semana ?? []).length > 0
+                                ? (rutina.dias_semana ?? []).map(day => DAY_LABELS_ASCII[day]).join(' · ')
+                                : null;
+                              return (
+                                <Draggable key={rutina.id} draggableId={`rutina:${rutina.id}`} index={currentIndex} isDragDisabled>
+                                  {(dragProvided, dragSnapshot) => (
+                                    (() => {
+                                      const card = (
+                                        <div
+                                          ref={dragProvided.innerRef}
+                                          {...dragProvided.draggableProps}
+                                          {...dragProvided.dragHandleProps}
+                                          className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3"
+                                          style={dragProvided.draggableProps.style}
+                                        >
+                                          <div className="flex items-start gap-3">
+                                            <div className={`w-3 h-full min-h-[40px] rounded-full flex-shrink-0 ${COLOR_BG[rutina.color || 'blue']}`} />
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-start justify-between gap-2">
+                                                <p className="text-sm font-semibold text-foreground leading-tight">{rutina.nombre}</p>
+                                                {rutina.categoria && (
+                                                  <span className="flex-shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                                    {rutina.categoria}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className={`flex flex-wrap items-center gap-1.5 mt-1 ${parte?.colorClass}`}>
+                                                <PartIcon className="h-3 w-3" />
+                                                <span className="text-xs font-medium">{partsLabel}</span>
+                                                {isMultiPart && (
+                                                  <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                                                    Multi-franja
+                                                  </span>
+                                                )}
                                               </div>
                                               {rutina.descripcion && (
                                                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{rutina.descripcion}</p>
@@ -1534,21 +1737,66 @@ export default function RutinaPage() {
                 </div>
               ) : (
                 pickerRutinas.map(rutina => (
-                  <button
+                  <div
                     key={rutina.id}
-                    onClick={() => handleAsignar(rutina.id)}
-                    className="w-full flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-3 hover:bg-muted hover:border-primary/50 transition-colors text-left"
+                    className={`rounded-xl border px-4 py-3 transition-colors ${pickerSelectedRutina?.id === rutina.id ? 'border-primary bg-primary/5' : 'border-border bg-background'}`}
                   >
-                    <div className={`w-3 h-10 rounded-full flex-shrink-0 ${COLOR_BG[rutina.color || 'blue']}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground">{rutina.nombre}</p>
-                      {(rutina.objetivos ?? []).length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {rutina.objetivos.length} objetivo{rutina.objetivos.length !== 1 ? 's' : ''}
-                        </p>
-                      )}
-                    </div>
-                  </button>
+                    <button
+                      onClick={() => {
+                        const rutinaParts = rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia];
+                        setPickerSelectedRutina(rutina);
+                        setPickerSelectedParts(new Set(rutinaParts.includes(picker.parte_dia) ? [picker.parte_dia] : [rutinaParts[0]]));
+                      }}
+                      className="w-full flex items-center gap-3 text-left"
+                    >
+                      <div className={`w-3 h-10 rounded-full flex-shrink-0 ${COLOR_BG[rutina.color || 'blue']}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">{rutina.nombre}</p>
+                        {(rutina.objetivos ?? []).length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {rutina.objetivos.length} objetivo{rutina.objetivos.length !== 1 ? 's' : ''}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+
+                    {pickerSelectedRutina?.id === rutina.id && (
+                      <div className="mt-3 space-y-3 border-t border-border pt-3">
+                        <p className="text-xs font-medium text-muted-foreground">Programar esta rutina en:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(rutina.partes_dia?.length ? rutina.partes_dia : [rutina.parte_dia]).map(part => {
+                            const selected = pickerSelectedParts.has(part);
+                            const partLabel = PARTES.find(p => p.value === part)?.label || part;
+                            return (
+                              <button
+                                key={`${rutina.id}-${part}`}
+                                type="button"
+                                onClick={() => {
+                                  setPickerSelectedParts(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(part) && next.size > 1) next.delete(part);
+                                    else next.add(part);
+                                    return next;
+                                  });
+                                }}
+                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${selected ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background text-muted-foreground hover:bg-muted'}`}
+                              >
+                                {partLabel}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            onClick={handleAssignRutinaToMultipleParts}
+                            className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                          >
+                            Agregar en franjas elegidas
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ))
               )}
             </div>
@@ -1588,6 +1836,17 @@ export default function RutinaPage() {
                   >
                     Marcar todos
                   </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignmentSkipAllDialogOpen(true);
+                        setAssignmentSkipAllDialogStep('choice');
+                        setAssignmentSkipAllDialogReason('');
+                      }}
+                      className="text-xs text-amber-600 hover:text-amber-700 hover:underline"
+                    >
+                      Saltar todos
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -1734,6 +1993,67 @@ export default function RutinaPage() {
                       className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700"
                     >
                       Guardar y saltar
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {assignmentSkipAllDialogOpen && (
+        <div className="fixed inset-0 z-[341] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/65 backdrop-blur-sm" onClick={closeAssignmentSkipAllDialog} />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl">
+            <div className="h-1.5 w-full bg-gradient-to-r from-amber-500/70 via-amber-500 to-amber-500/70" />
+            <div className="space-y-4 p-5">
+              <div className="space-y-1">
+                <h3 className="text-base font-semibold">Saltar todos los objetivos</h3>
+                <p className="text-sm text-muted-foreground">
+                  Puedes saltar todos los objetivos de esta rutina con o sin explicación para esta fecha.
+                </p>
+              </div>
+
+              {assignmentSkipAllDialogStep === 'choice' ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={confirmAssignmentSkipAllWithoutReason}
+                    className="w-full rounded-xl border border-border bg-card px-3 py-3 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <div className="font-medium text-foreground">Saltar todos sin explicar</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">No se guarda ningún motivo.</div>
+                  </button>
+                  <button
+                    onClick={() => setAssignmentSkipAllDialogStep('reason')}
+                    className="w-full rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-3 text-left text-sm transition-colors hover:bg-amber-500/10"
+                  >
+                    <div className="font-medium text-foreground">Sí, explicar</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">Añade un motivo breve y se aplicará a todos.</div>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={assignmentSkipAllDialogReason}
+                    onChange={(e) => setAssignmentSkipAllDialogReason(e.target.value)}
+                    placeholder="Cuéntame por qué los saltas (opcional)"
+                    rows={4}
+                    className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <div className="text-right text-[11px] text-muted-foreground">{assignmentSkipAllDialogReason.trim().length}/280</div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setAssignmentSkipAllDialogStep('choice')}
+                      className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      onClick={confirmAssignmentSkipAllWithReason}
+                      className="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700"
+                    >
+                      Guardar y saltar todos
                     </button>
                   </div>
                 </>

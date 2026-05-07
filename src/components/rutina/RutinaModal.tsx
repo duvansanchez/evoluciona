@@ -67,18 +67,20 @@ interface Props {
   onSave: (data: {
     nombre: string;
     parte_dia: string;
+    partes_dia: string[];
     color?: string;
     categoria?: string;
     descripcion?: string;
     duracion_proyectada_minutos?: number;
     dias_semana: number[];
     objetivoIds: number[];
+    disabledGoalIds: number[];
   }) => Promise<void>;
 }
 
 export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDia, existingCategories = [], onSave }: Props) {
   const [nombre, setNombre] = useState('');
-  const [parteDia, setParteDia] = useState<string>('morning');
+  const [partesDia, setPartesDia] = useState<Set<string>>(new Set(['morning']));
   const [color, setColor] = useState<string>('blue');
   const [categoria, setCategoria] = useState<string>('');
   const [customCategoria, setCustomCategoria] = useState('');
@@ -89,6 +91,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
   const [saving, setSaving] = useState(false);
   const [availableGoals, setAvailableGoals] = useState<GoalSimple[]>([]);
   const [selectedGoalIds, setSelectedGoalIds] = useState<number[]>([]);
+  const [disabledGoalIds, setDisabledGoalIds] = useState<number[]>([]);
   const [quickGoalTitle, setQuickGoalTitle] = useState('');
   const [quickGoalIcon, setQuickGoalIcon] = useState('');
   const [quickGoalDescription, setQuickGoalDescription] = useState('');
@@ -148,6 +151,16 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
     [goalsById, selectedGoalIds],
   );
 
+  const activeSelectedGoals = useMemo(
+    () => selectedGoals.filter(goal => !disabledGoalIds.includes(goal.id)),
+    [disabledGoalIds, selectedGoals],
+  );
+
+  const disabledSelectedGoals = useMemo(
+    () => selectedGoals.filter(goal => disabledGoalIds.includes(goal.id)),
+    [disabledGoalIds, selectedGoals],
+  );
+
   const loadAvailableGoals = async () => {
     const goals = await rutinasAPI.getRecurrenteGoals();
     setAvailableGoals(goals);
@@ -157,12 +170,13 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
     if (!open) return;
     if (rutina) {
       setNombre(rutina.nombre);
-      setParteDia(rutina.parte_dia);
+      setPartesDia(new Set((rutina.partes_dia && rutina.partes_dia.length > 0 ? rutina.partes_dia : [rutina.parte_dia])));
       setColor(rutina.color || 'blue');
       setDescripcion(rutina.descripcion || '');
       setDuracionProyectadaMinutos(rutina.duracion_proyectada_minutos ? String(rutina.duracion_proyectada_minutos) : '');
       setDiasSemana(new Set(rutina.dias_semana ?? []));
       setSelectedGoalIds((rutina.objetivos ?? []).map(g => g.id));
+      setDisabledGoalIds(rutina.objetivo_ids_desactivados ?? []);
       const cat = rutina.categoria || '';
       const isKnown = availableRutinaCategories.some(c => c.value === cat);
       if (isKnown) {
@@ -180,7 +194,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
       }
     } else {
       setNombre('');
-      setParteDia(defaultParteDia || 'morning');
+      setPartesDia(new Set([defaultParteDia || 'morning']));
       setColor('blue');
       setCategoria('');
       setCustomCategoria('');
@@ -189,6 +203,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
       setDuracionProyectadaMinutos('');
       setDiasSemana(new Set());
       setSelectedGoalIds([]);
+      setDisabledGoalIds([]);
     }
     setQuickGoalTitle('');
     setQuickGoalIcon('');
@@ -210,8 +225,8 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
     if (aSelected && bSelected) return aSelectedIndex - bSelectedIndex;
     if (aSelected !== bSelected) return aSelected ? -1 : 1;
 
-    const aMatches = a.parte_dia === parteDia ? 1 : 0;
-    const bMatches = b.parte_dia === parteDia ? 1 : 0;
+    const aMatches = a.parte_dia ? (partesDia.has(a.parte_dia) ? 1 : 0) : 0;
+    const bMatches = b.parte_dia ? (partesDia.has(b.parte_dia) ? 1 : 0) : 0;
     if (aMatches !== bMatches) return bMatches - aMatches;
     return a.titulo.localeCompare(b.titulo, 'es', { sensitivity: 'base' });
   });
@@ -247,6 +262,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
 
   const handleCreateQuickGoal = async (keepTyping = false) => {
     if (!quickGoalTitle.trim()) return;
+    const primaryPart = Array.from(partesDia)[0] || 'morning';
 
     setCreatingGoal(true);
     setGoalCreateError(null);
@@ -257,7 +273,7 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
         descripcion: quickGoalDescription.trim() || undefined,
         categoria: CATEGORY_TO_BACKEND[quickGoalCategory] || 'diario',
         recurrente: true,
-        parte_dia: parteDia,
+        parte_dia: primaryPart,
       });
 
       if (quickSubgoals.length > 0) {
@@ -296,6 +312,8 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
   const handleSave = async () => {
     if (!nombre.trim()) return;
     setSaving(true);
+    const resolvedPartesDia = Array.from(partesDia);
+    const primaryPart = resolvedPartesDia[0] || 'morning';
     const resolvedCategoria = categoria === '__custom__'
       ? customCategoria.trim() || undefined
       : categoria || undefined;
@@ -306,13 +324,15 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
     try {
       await onSave({
         nombre: nombre.trim(),
-        parte_dia: parteDia,
+        parte_dia: primaryPart,
+        partes_dia: resolvedPartesDia,
         color,
         categoria: resolvedCategoria,
         descripcion: descripcion.trim() || undefined,
         duracion_proyectada_minutos: resolvedProjectedDuration,
         dias_semana: Array.from(diasSemana).sort((a, b) => a - b),
         objetivoIds: selectedGoalIds,
+        disabledGoalIds: disabledGoalIds.filter(id => selectedGoalIds.includes(id)),
       });
 
       if (resolvedCategoria) {
@@ -378,21 +398,31 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
               </label>
               <div className="flex gap-2">
                 {PARTES_DIA.map(({ value, label, icon: Icon, color: iconColor }) => (
-                  <button
-                    key={value}
-                    onClick={() => setParteDia(value)}
-                    className={`flex-1 flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-medium transition-colors ${
-                      parteDia === value
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    <Icon className={`h-4 w-4 ${parteDia === value ? '' : iconColor}`} />
-                    {label}
-                  </button>
-                ))}
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setPartesDia(prev => {
+                          const next = new Set(prev);
+                          if (next.has(value) && next.size > 1) next.delete(value);
+                          else next.add(value);
+                          return next;
+                        });
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 rounded-xl border py-2.5 text-sm font-medium transition-colors ${
+                        partesDia.has(value)
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 ${partesDia.has(value) ? '' : iconColor}`} />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Puedes activar esta rutina en una o varias partes del día. Debe quedar al menos una seleccionada.
+                </p>
               </div>
-            </div>
 
             {/* Color */}
             <div>
@@ -713,10 +743,16 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                   <>
                     {selectedGoals.length > 0 && (
                       <div className="space-y-1 rounded-xl border border-primary/30 bg-primary/5 p-2">
-                        <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                          Orden en rutina (arrastra y suelta)
-                        </p>
-                        {selectedGoals.map(goal => {
+                        <div className="space-y-2">
+                          <div>
+                            <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Activos en rutina (arrastra y suelta)
+                            </p>
+                            {activeSelectedGoals.length === 0 ? (
+                              <p className="px-1 pt-1 text-[10px] text-muted-foreground">No hay objetivos activos en esta rutina.</p>
+                            ) : null}
+                          </div>
+                        {activeSelectedGoals.map(goal => {
                           const isDragOver = dragOverSelectedGoalId === goal.id && draggingSelectedGoalId !== goal.id;
                           return (
                             <div
@@ -764,10 +800,60 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                                     {[goal.frecuencia, goal.parte_dia === 'morning' ? 'mañana' : goal.parte_dia === 'afternoon' ? 'tarde' : goal.parte_dia === 'evening' ? 'noche' : null].filter(Boolean).join(' · ')}
                                   </p>
                                 )}
+                                <p className="mt-1 text-[10px] font-medium text-emerald-600">Activo en esta rutina</p>
                               </div>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setDisabledGoalIds(prev => [...prev, goal.id]);
+                                }}
+                                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-700 transition-colors dark:text-amber-300"
+                              >
+                                Desactivar
+                              </button>
                             </div>
                           );
                         })}
+                        </div>
+
+                        <div className="mt-3 border-t border-primary/20 pt-3 space-y-2">
+                          <div>
+                            <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                              Desactivados en rutina
+                            </p>
+                            {disabledSelectedGoals.length === 0 ? (
+                              <p className="px-1 pt-1 text-[10px] text-muted-foreground">No hay objetivos desactivados en esta rutina.</p>
+                            ) : null}
+                          </div>
+                          {disabledSelectedGoals.map(goal => (
+                            <div
+                              key={`disabled-${goal.id}`}
+                              className="flex items-center gap-2 rounded-lg border border-border bg-background/80 px-2 py-1.5"
+                            >
+                              <span className="text-sm flex-shrink-0">{goal.icono || '🎯'}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium text-foreground truncate">{goal.titulo}</p>
+                                {(goal.frecuencia || goal.parte_dia) && (
+                                  <p className="text-[10px] text-muted-foreground capitalize">
+                                    {[goal.frecuencia, goal.parte_dia === 'morning' ? 'mañana' : goal.parte_dia === 'afternoon' ? 'tarde' : goal.parte_dia === 'evening' ? 'noche' : null].filter(Boolean).join(' · ')}
+                                  </p>
+                                )}
+                                <p className="mt-1 text-[10px] font-medium text-amber-600">Desactivado en esta rutina</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  setDisabledGoalIds(prev => prev.filter(id => id !== goal.id));
+                                }}
+                                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition-colors dark:text-emerald-300"
+                              >
+                                Activar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -785,7 +871,10 @@ export default function RutinaModal({ open, onOpenChange, rutina, defaultParteDi
                                 checked={checked}
                                 onChange={() => {
                                   setSelectedGoalIds(prev => {
-                                    if (checked) return prev.filter(id => id !== g.id);
+                                    if (checked) {
+                                      setDisabledGoalIds(disabledPrev => disabledPrev.filter(id => id !== g.id));
+                                      return prev.filter(id => id !== g.id);
+                                    }
                                     return [...prev, g.id];
                                   });
                                 }}

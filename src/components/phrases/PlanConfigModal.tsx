@@ -51,6 +51,7 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
       shuffle: plan.config.shuffle ?? false,
       daily_limit: plan.config.daily_limit ?? null,
       excluded_phrase_ids: plan.config.excluded_phrase_ids ?? [],
+      target_limits: plan.config.target_limits ?? {},
     });
   }, [open, plan]);
 
@@ -172,6 +173,15 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
   const activeCount = phrases.length - config.excluded_phrase_ids.filter(
     id => phrases.some(phrase => Number(phrase.id) === id),
   ).length;
+
+  const getTargetActiveCount = (target: string) => {
+    const matching = phrases.filter(phrase => {
+      const [type, categoryId, subcategoryId] = target.split(':');
+      if (type === 'cat') return phrase.categoryId === categoryId;
+      return phrase.categoryId === categoryId && phrase.subcategoryId === subcategoryId;
+    });
+    return matching.length;
+  };
 
   if (!open) return null;
 
@@ -306,6 +316,50 @@ export default function PlanConfigModal({ open, onOpenChange, plan, categories, 
                 className="w-20 rounded-lg border border-border bg-muted px-3 py-1.5 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
+
+            {targets.length > 0 && (
+              <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Tope por categoría/subcategoría</p>
+                  <p className="text-xs text-muted-foreground mt-1">Limita cuántas frases tomar de cada bloque antes de mezclar el repaso.</p>
+                </div>
+
+                <div className="space-y-2">
+                  {targets.map(target => (
+                    <div key={target} className="flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">{targetLabel(target)}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {(() => {
+                            const activeCountForTarget = getTargetActiveCount(target);
+                            const limit = config.target_limits?.[target] ?? null;
+                            const applied = limit && limit > 0 ? Math.min(limit, activeCountForTarget) : activeCountForTarget;
+                            return `${applied}/${activeCountForTarget} frases se usarán`;
+                          })()}
+                        </p>
+                      </div>
+                      <input
+                        type="number"
+                        min={1}
+                        placeholder="∞"
+                        value={config.target_limits?.[target] ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setConfig(prev => ({
+                            ...prev,
+                            target_limits: {
+                              ...(prev.target_limits ?? {}),
+                              [target]: value === '' ? null : Number(value),
+                            },
+                          }));
+                        }}
+                        className="w-20 rounded-lg border border-border bg-muted px-3 py-1.5 text-center text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="space-y-3">

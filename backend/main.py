@@ -79,9 +79,44 @@ try:
             conn.execute(text("""
                 IF NOT EXISTS (
                     SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutinas') AND name = N'objetivo_ids_desactivados'
+                )
+                ALTER TABLE rutinas ADD objetivo_ids_desactivados NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'rutinas') AND name = N'partes_dia'
+                )
+                ALTER TABLE rutinas ADD partes_dia NVARCHAR(MAX) NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
                     WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'folder_id'
                 )
                 ALTER TABLE subobjetivos ADD folder_id INT NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'fecha_completado'
+                )
+                ALTER TABLE subobjetivos ADD fecha_completado DATETIME NULL
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'recurrente'
+                )
+                ALTER TABLE subobjetivos ADD recurrente BIT NOT NULL CONSTRAINT DF_subobjetivos_recurrente DEFAULT 0
+            """))
+            conn.execute(text("""
+                IF NOT EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'subobjetivos') AND name = N'activa'
+                )
+                ALTER TABLE subobjetivos ADD activa BIT NOT NULL CONSTRAINT DF_subobjetivos_activa DEFAULT 1
             """))
             conn.execute(text("""
                 IF NOT EXISTS (

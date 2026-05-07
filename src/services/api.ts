@@ -882,6 +882,7 @@ export interface ReviewPlanConfig {
   shuffle: boolean;
   daily_limit: number | null;
   excluded_phrase_ids: number[];
+  target_limits: Record<string, number | null>;
 }
 
 export interface ReviewPlanData {
@@ -962,10 +963,12 @@ export interface Rutina {
   id: number;
   nombre: string;
   parte_dia: 'morning' | 'afternoon' | 'evening';
+  partes_dia: Array<'morning' | 'afternoon' | 'evening'>;
   color?: string;
   categoria?: string;
   descripcion?: string;
   duracion_proyectada_minutos?: number;
+  objetivo_ids_desactivados: number[];
   dias_semana: number[];
   activa: boolean;
   fecha_creacion?: string;
@@ -1154,10 +1157,12 @@ export const rutinasAPI = {
   createRutina: async (data: {
     nombre: string;
     parte_dia: string;
+    partes_dia: string[];
     color?: string;
     categoria?: string;
     descripcion?: string;
     duracion_proyectada_minutos?: number;
+    objetivo_ids_desactivados: number[];
     dias_semana: number[];
     bloques: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {
@@ -1173,10 +1178,12 @@ export const rutinasAPI = {
   updateRutina: async (id: number, data: {
     nombre?: string;
     parte_dia?: string;
+    partes_dia?: string[];
     color?: string;
     categoria?: string;
     descripcion?: string;
     duracion_proyectada_minutos?: number | null;
+    objetivo_ids_desactivados?: number[];
     dias_semana?: number[];
     bloques?: Omit<RutinaBloque, 'id' | 'rutina_id'>[];
   }): Promise<Rutina> => {

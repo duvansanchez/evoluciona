@@ -28,14 +28,17 @@ router = APIRouter(prefix="/api/rutinas", tags=["rutinas"])
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _rutina_to_dict(r: Rutina) -> dict:
+    partes_dia = json.loads(r.partes_dia) if r.partes_dia else ([r.parte_dia] if r.parte_dia else [])
     return {
         "id": r.id,
         "nombre": r.nombre,
         "parte_dia": r.parte_dia,
+        "partes_dia": partes_dia,
         "color": r.color,
         "categoria": r.categoria,
         "descripcion": r.descripcion,
         "duracion_proyectada_minutos": r.duracion_proyectada_minutos,
+        "objetivo_ids_desactivados": json.loads(r.objetivo_ids_desactivados) if r.objetivo_ids_desactivados else [],
         "dias_semana": json.loads(r.dias_semana) if r.dias_semana else [],
         "activa": r.activa,
         "fecha_creacion": r.fecha_creacion,
@@ -107,24 +110,44 @@ def _ensure_weekly_assignments(db: Session, fechas: list[str]) -> None:
         .filter(RutinaAsignacion.fecha.in_(fechas))
         .all()
     )
+    assignments_to_delete: list[RutinaAsignacion] = []
+
+    routine_primary_parts = {
+        rutina.id: ((json.loads(rutina.partes_dia)[0] if rutina.partes_dia and json.loads(rutina.partes_dia) else rutina.parte_dia))
+        for rutina in rutinas
+    }
+
+    for assignment in existing_assignments:
+        primary_part = routine_primary_parts.get(assignment.rutina_id)
+        if assignment.es_automatica and primary_part and assignment.parte_dia != primary_part:
+            assignments_to_delete.append(assignment)
+
+    if assignments_to_delete:
+        for assignment in assignments_to_delete:
+          db.delete(assignment)
+        db.flush()
+        existing_assignments = [assignment for assignment in existing_assignments if assignment not in assignments_to_delete]
+
     existing_keys = {(assignment.fecha, assignment.parte_dia, assignment.rutina_id) for assignment in existing_assignments}
 
     created = False
     for rutina in rutinas:
         weekly_days = json.loads(rutina.dias_semana) if rutina.dias_semana else []
+        routine_day_parts = json.loads(rutina.partes_dia) if rutina.partes_dia else ([rutina.parte_dia] if rutina.parte_dia else [])
+        primary_part = routine_day_parts[0] if routine_day_parts else rutina.parte_dia
         if not weekly_days:
             continue
 
         for fecha in fechas:
             if _weekday_index(fecha) not in weekly_days:
                 continue
-            key = (fecha, rutina.parte_dia, rutina.id)
+            key = (fecha, primary_part, rutina.id)
             if key in existing_keys:
                 continue
 
             db.add(RutinaAsignacion(
                 fecha=fecha,
-                parte_dia=rutina.parte_dia,
+                parte_dia=primary_part,
                 rutina_id=rutina.id,
                 completada=False,
                 es_automatica=True,
@@ -149,13 +172,17 @@ def list_rutinas(db: Session = Depends(get_db)):
 @router.post("", response_model=RutinaResponse, status_code=201)
 def create_rutina(data: RutinaCreate, db: Session = Depends(get_db)):
     """Crear una nueva rutina con sus bloques."""
+    partes_dia = data.partes_dia or ([data.parte_dia] if data.parte_dia else [])
+    primary_part = partes_dia[0] if partes_dia else data.parte_dia
     rutina = Rutina(
         nombre=data.nombre,
-        parte_dia=data.parte_dia,
+        parte_dia=primary_part,
+        partes_dia=json.dumps(partes_dia),
         color=data.color,
         categoria=data.categoria,
         descripcion=data.descripcion,
         duracion_proyectada_minutos=data.duracion_proyectada_minutos,
+        objetivo_ids_desactivados=json.dumps(data.objetivo_ids_desactivados or []),
         dias_semana=json.dumps(data.dias_semana or []),
         activa=True,
         fecha_creacion=datetime.now(),
@@ -383,6 +410,10 @@ def update_rutina(rutina_id: int, data: RutinaUpdate, db: Session = Depends(get_
         r.nombre = data.nombre
     if data.parte_dia is not None:
         r.parte_dia = data.parte_dia
+    if data.partes_dia is not None:
+        r.partes_dia = json.dumps(data.partes_dia)
+        if data.partes_dia:
+            r.parte_dia = data.partes_dia[0]
     if data.color is not None:
         r.color = data.color
     if data.categoria is not None:
@@ -391,6 +422,8 @@ def update_rutina(rutina_id: int, data: RutinaUpdate, db: Session = Depends(get_
         r.descripcion = data.descripcion
     if "duracion_proyectada_minutos" in data.model_fields_set:
         r.duracion_proyectada_minutos = data.duracion_proyectada_minutos
+    if data.objetivo_ids_desactivados is not None:
+        r.objetivo_ids_desactivados = json.dumps(data.objetivo_ids_desactivados)
     if data.dias_semana is not None:
         r.dias_semana = json.dumps(data.dias_semana)
     if data.bloques is not None:

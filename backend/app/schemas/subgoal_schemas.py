@@ -11,6 +11,8 @@ class SubGoalBase(BaseModel):
     """Base para subobjetivos."""
     titulo: str = Field(..., min_length=1, max_length=255)
     completado: bool = False
+    recurrente: bool = False
+    activa: bool = True
     orden: Optional[int] = None
     tiempo_focus: Optional[int] = 0
     notas: Optional[str] = None
@@ -26,6 +28,9 @@ class SubGoalUpdate(BaseModel):
     """Schema para actualizar subobjetivo."""
     titulo: Optional[str] = Field(None, min_length=1, max_length=255)
     completado: Optional[bool] = None
+    fecha_completado: Optional[str] = None
+    recurrente: Optional[bool] = None
+    activa: Optional[bool] = None
     orden: Optional[int] = None
     tiempo_focus: Optional[int] = None
     notas: Optional[str] = None
@@ -37,6 +42,7 @@ class SubGoalResponse(SubGoalBase):
     id: int
     objetivo_id: int
     fecha_creacion: Optional[datetime] = None
+    fecha_completado: Optional[datetime] = None
     orden: Optional[int] = None
     folder_id: Optional[int] = None
 

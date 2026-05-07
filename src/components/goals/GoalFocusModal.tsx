@@ -94,8 +94,9 @@ export default function GoalFocusModal({
       setSeconds(goal.focusTimeSeconds || 0);
       setNotes(goal.focusNotes || '');
       // Mantener el orden que viene del backend, solo separar completados al final
-      const nonCompleted = goal.subGoals.filter(s => !s.completed);
-      const completed = goal.subGoals.filter(s => s.completed);
+      const activeSubGoals = goal.subGoals.filter(s => s.active !== false);
+      const nonCompleted = activeSubGoals.filter(s => !s.completed);
+      const completed = activeSubGoals.filter(s => s.completed);
       setSubGoals([...nonCompleted, ...completed]);
       setTimerState('idle');
       setHasUnsavedChanges(false);

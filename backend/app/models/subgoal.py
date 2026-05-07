@@ -18,6 +18,9 @@ class SubGoal(Base):
     objetivo_id = Column(Integer, ForeignKey("objetivos.id", ondelete="CASCADE"), nullable=False)
     titulo = Column(String(255), nullable=False)
     completado = Column(Boolean, default=False, nullable=False)
+    fecha_completado = Column(DateTime, nullable=True)
+    recurrente = Column(Boolean, default=False, nullable=False)
+    activa = Column(Boolean, default=True, nullable=False)
     fecha_creacion = Column(DateTime, nullable=True, default=datetime.utcnow)
     orden = Column(Integer, nullable=False, default=0)
     tiempo_focus = Column(Integer, nullable=True, default=0)  # Tiempo en segundos

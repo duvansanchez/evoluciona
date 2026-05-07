@@ -59,6 +59,10 @@ export default function FocusModal({ open, onOpenChange, subGoal, parentGoal, on
   // Cargar datos del subobjetivo
   useEffect(() => {
     if (open && subGoal) {
+      if (subGoal.active === false) {
+        onOpenChange(false);
+        return;
+      }
       setSeconds(subGoal.focusTimeSeconds || 0);
       setNotes(subGoal.notes || '');
       setTimerState('idle');

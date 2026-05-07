@@ -38,6 +38,7 @@ const DEFAULT_PLAN_CONFIG: ReviewPlanConfig = {
   shuffle: false,
   daily_limit: null,
   excluded_phrase_ids: [],
+  target_limits: {},
 };
 
 const PHRASES_PAGE_SIZE = 60;
@@ -93,8 +94,10 @@ export default function Phrases() {
   const [reviewSessionLabel, setReviewSessionLabel] = useState('Todas');
   const [reviewSessionPlanId, setReviewSessionPlanId] = useState<number | undefined>(undefined);
   const [reviewSessionAudioMode, setReviewSessionAudioMode] = useState<'off' | 'manual' | 'continuous'>('off');
+  const [reviewSessionKey, setReviewSessionKey] = useState(0);
   const [reviewPlans, setReviewPlans] = useState<ReviewPlan[]>([]);
   const [configuringPlan, setConfiguringPlan] = useState<ReviewPlan | null>(null);
+  const [configuringDraftPlan, setConfiguringDraftPlan] = useState<ReviewPlan | null>(null);
   const [deletingPlanId, setDeletingPlanId] = useState<number | null>(null);
   const [planName, setPlanName] = useState('');
   const [targetToAdd, setTargetToAdd] = useState('');
@@ -237,6 +240,18 @@ export default function Phrases() {
     ).length;
   };
 
+  const getPlanTargetSummaryPreview = (plan: ReviewPlan) => {
+    const cfg = plan.config ?? DEFAULT_PLAN_CONFIG;
+    return plan.targets.map(target => {
+      const matching = phrases.filter(p => p.active && matchesTarget(p, target));
+      const excluded = new Set((cfg.excluded_phrase_ids ?? []).map(String));
+      const available = matching.filter(phrase => !excluded.has(phrase.id)).length;
+      const targetLimit = cfg.target_limits?.[target] ?? null;
+      const applied = targetLimit && targetLimit > 0 ? Math.min(targetLimit, available) : available;
+      return `${targetLabel(target)}: ${applied}/${available}`;
+    });
+  };
+
   const addTargetToDraft = () => {
     if (!targetToAdd) return;
     if (selectedPlanTargets.includes(targetToAdd)) return;
@@ -294,6 +309,47 @@ export default function Phrases() {
     return Array.from(byId.values());
   };
 
+  const getPlanTargetSummary = async (plan: ReviewPlan) => {
+    const cfg = plan.config ?? DEFAULT_PLAN_CONFIG;
+    const summaries: string[] = [];
+
+    for (const target of plan.targets) {
+      let targetPhrases = await fetchActivePhrasesForTarget(target);
+      if (cfg.excluded_phrase_ids.length > 0) {
+        const excluded = new Set(cfg.excluded_phrase_ids.map(String));
+        targetPhrases = targetPhrases.filter(p => !excluded.has(p.id));
+      }
+      const total = targetPhrases.length;
+      const targetLimit = cfg.target_limits?.[target] ?? null;
+      const applied = targetLimit && targetLimit > 0 ? Math.min(targetLimit, total) : total;
+      summaries.push(`${targetLabel(target)}: ${applied}/${total}`);
+    }
+
+    return summaries;
+  };
+
+  const fetchActivePhrasesForTarget = async (target: string) => {
+    const [type, categoryId, subcategoryId] = target.split(':');
+    let page = 1;
+    let totalPages = 1;
+    const merged: Phrase[] = [];
+
+    do {
+      const response = await phrasesAPI.getPhrases(
+        page,
+        100,
+        categoryId,
+        type === 'sub' ? subcategoryId : undefined,
+        true,
+      );
+      merged.push(...response.items.map(mapBackendPhrase));
+      totalPages = response.pages || 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return merged;
+  };
+
   const openReviewSession = (
     items: Phrase[],
     label: string,
@@ -304,6 +360,7 @@ export default function Phrases() {
     setReviewSessionLabel(label);
     setReviewSessionPlanId(planId);
     setReviewSessionAudioMode(audioMode);
+    setReviewSessionKey(prev => prev + 1);
     setShowReviewModal(true);
   };
 
@@ -335,19 +392,39 @@ export default function Phrases() {
   };
 
   const handleStartStudyReview = async (plan: ReviewPlan, audioMode: 'off' | 'manual' | 'continuous' = 'off') => {
-    let selected = await fetchAllActiveForTargets(plan.targets);
+    const targetSummary = await getPlanTargetSummary(plan);
+    const cfg = plan.config ?? DEFAULT_PLAN_CONFIG;
+    const excluded = new Set((cfg.excluded_phrase_ids ?? []).map(String));
+    const selectedById = new Map<string, Phrase>();
+
+    for (const target of plan.targets) {
+      let targetPhrases = await fetchActivePhrasesForTarget(target);
+
+      if (excluded.size > 0) {
+        targetPhrases = targetPhrases.filter(p => !excluded.has(p.id));
+      }
+
+      if (cfg.shuffle) {
+        targetPhrases = [...targetPhrases].sort(() => Math.random() - 0.5);
+      }
+
+      const targetLimit = cfg.target_limits?.[target] ?? null;
+      if (targetLimit && targetLimit > 0) {
+        targetPhrases = targetPhrases.slice(0, targetLimit);
+      }
+
+      targetPhrases.forEach(phrase => {
+        if (!selectedById.has(phrase.id)) {
+          selectedById.set(phrase.id, phrase);
+        }
+      });
+    }
+
+    let selected = Array.from(selectedById.values());
 
     if (selected.length === 0) {
       alert('Esta planificación no tiene frases activas para repasar.');
       return;
-    }
-
-    const cfg = plan.config ?? DEFAULT_PLAN_CONFIG;
-
-    // Aplicar exclusiones de la config del plan
-    if (cfg.excluded_phrase_ids.length > 0) {
-      const excluded = new Set(cfg.excluded_phrase_ids.map(String));
-      selected = selected.filter(p => !excluded.has(p.id));
     }
 
     // Aplicar orden aleatorio
@@ -365,6 +442,10 @@ export default function Phrases() {
       return;
     }
 
+    if (targetSummary.length > 0) {
+      console.log('Resumen por target del repaso:', targetSummary.join(' | '));
+    }
+
     openReviewSession(selected, `Planificación: ${plan.name}`, plan.id, audioMode);
   };
 
@@ -372,6 +453,39 @@ export default function Phrases() {
     const updated = await reviewPlansAPI.updatePlan(planId, payload);
     setReviewPlans(prev => prev.map(p => p.id === planId ? { ...p, ...updated, config: updated.config ?? DEFAULT_PLAN_CONFIG } : p));
     setConfiguringPlan(prev => prev && prev.id === planId ? { ...prev, ...updated, config: updated.config ?? DEFAULT_PLAN_CONFIG } : prev);
+  };
+
+  const handleSaveDraftPlanConfig = async (_planId: number, payload: ReviewPlanUpdatePayload) => {
+    if (!planName.trim()) {
+      alert('El nombre de la planificación de repaso es obligatorio.');
+      return;
+    }
+
+    const nextTargets = payload.targets && payload.targets.length > 0 ? payload.targets : selectedPlanTargets;
+    if (nextTargets.length === 0) {
+      alert('Selecciona al menos una categoría o subcategoría para crear la planificación.');
+      return;
+    }
+
+    try {
+      const newPlan = await reviewPlansAPI.createPlan({
+        name: payload.name?.trim() || planName.trim(),
+        targets: nextTargets,
+      });
+
+      const updatedConfig = await reviewPlansAPI.updatePlan(newPlan.id, {
+        config: payload.config ?? DEFAULT_PLAN_CONFIG,
+      });
+
+      setReviewPlans(prev => [{ ...newPlan, ...updatedConfig, config: updatedConfig.config ?? DEFAULT_PLAN_CONFIG }, ...prev]);
+      setPlanName('');
+      setSelectedPlanTargets([]);
+      setTargetToAdd('');
+      setConfiguringDraftPlan(null);
+    } catch (error) {
+      console.error('Error creating configured review plan:', error);
+      alert('Error al guardar la planificación.');
+    }
   };
 
   const handleCreateReviewPlan = async () => {
@@ -720,6 +834,29 @@ export default function Phrases() {
             Audio corrido
           </button>
           <button
+            onClick={() => {
+              if (!planName.trim()) {
+                alert('Ponle un nombre a la planificación antes de configurarla.');
+                return;
+              }
+              if (selectedPlanTargets.length === 0) {
+                alert('Selecciona al menos una categoría o subcategoría antes de configurarla.');
+                return;
+              }
+              setConfiguringDraftPlan({
+                id: -1,
+                name: planName.trim(),
+                targets: selectedPlanTargets,
+                config: DEFAULT_PLAN_CONFIG,
+              });
+            }}
+            disabled={selectedPlanTargets.length === 0 || !planName.trim()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+          >
+            <Settings2 className="h-4 w-4" />
+            Configurar planificación
+          </button>
+          <button
             onClick={handleCreateReviewPlan}
             disabled={selectedPlanTargets.length === 0 || !planName.trim()}
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
@@ -738,6 +875,11 @@ export default function Phrases() {
                     {plan.targets.map(target => targetLabel(target)).join(' + ')}
                     {` · ${getPlanPhraseCount(plan)} frases activas`}
                   </p>
+                  {plan.targets.length > 0 && (
+                    <p className="mt-1 text-[11px] text-primary/80">
+                      {getPlanTargetSummaryPreview(plan).join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -821,6 +963,7 @@ export default function Phrases() {
 
       {/* Review Modal */}
       <ReviewModal
+        key={reviewSessionKey}
         open={showReviewModal}
         onOpenChange={setShowReviewModal}
         phrases={reviewPhrases}
@@ -869,6 +1012,16 @@ export default function Phrases() {
           plan={configuringPlan}
           categories={categories}
           onSave={handleSavePlanConfig}
+        />
+      )}
+
+      {configuringDraftPlan && (
+        <PlanConfigModal
+          open={!!configuringDraftPlan}
+          onOpenChange={open => { if (!open) setConfiguringDraftPlan(null); }}
+          plan={configuringDraftPlan}
+          categories={categories}
+          onSave={handleSaveDraftPlanConfig}
         />
       )}
     </div>

@@ -13,10 +13,13 @@ export interface SubGoal {
   id: string;
   title: string;
   completed: boolean;
+  recurring?: boolean;
+  active?: boolean;
   skipped?: boolean;
   skippedReason?: string;
   notes?: string;
   completedAt?: string;
+  createdAt?: string;
   priority?: GoalPriority;
   focusTimeSeconds?: number; // Tiempo acumulado en modo focus
   folderId?: number;

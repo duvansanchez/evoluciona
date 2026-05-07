@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Settings2, Square, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Repeat, Settings2, Square, X } from 'lucide-react';
 import type { Phrase, PhraseCategory } from '../../types';
 import PhraseModal from './PhraseModal';
 import { phrasesAPI } from '@/services/api';
@@ -16,7 +16,9 @@ interface ReviewModalProps {
   onReview: (id: string) => Promise<void> | void;
   onEdit: (id: string, formData: any) => void;
   sessionLabel?: string;
-  initialAudioMode?: 'off' | 'manual' | 'continuous';
+  initialAudioMode?: 'off' | 'manual' | 'continuous' | 'loop';
+  initialLoopCycles?: number;
+  initialLoopShuffle?: boolean;
 }
 
 export default function ReviewModal({
@@ -28,6 +30,8 @@ export default function ReviewModal({
   onEdit,
   sessionLabel,
   initialAudioMode = 'off',
+  initialLoopCycles = 2,
+  initialLoopShuffle = false,
 }: ReviewModalProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showNotes, setShowNotes] = useState(true);
@@ -41,6 +45,11 @@ export default function ReviewModal({
   const [audioStatusLoading, setAudioStatusLoading] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const [continuousAudioEnabled, setContinuousAudioEnabled] = useState(initialAudioMode === 'continuous');
+  const [loopAudioEnabled, setLoopAudioEnabled] = useState(initialAudioMode === 'loop');
+  const [loopCycleCount, setLoopCycleCount] = useState(initialLoopCycles);
+  const [loopShuffleEachCycle, setLoopShuffleEachCycle] = useState(initialLoopShuffle);
+  const [completedLoopCycles, setCompletedLoopCycles] = useState(1);
+  const [sessionPhrases, setSessionPhrases] = useState<Phrase[]>(phrases);
   const [voicesLoaded, setVoicesLoaded] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedVoiceName, setSelectedVoiceName] = useState('');
   const [audioRate, setAudioRate] = useState(DEFAULT_AUDIO_RATE);
@@ -49,17 +58,29 @@ export default function ReviewModal({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
+  const [showLoopSetup, setShowLoopSetup] = useState(false);
   const prevCategoryRef = useRef<{ categoryId: string | undefined; subcategoryId: string | undefined } | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioUrlRef = useRef<string | null>(null);
   const audioRequestIdRef = useRef(0);
   const continuousAudioEnabledRef = useRef(continuousAudioEnabled);
+  const loopAudioEnabledRef = useRef(loopAudioEnabled);
   const currentIndexRef = useRef(currentIndex);
-  const phrasesLengthRef = useRef(phrases.length);
+  const phrasesLengthRef = useRef(sessionPhrases.length);
   const openRef = useRef(open);
   const showEditModalRef = useRef(showEditModal);
   const reviewedPhraseIdsRef = useRef<Set<string>>(new Set());
+  const originalPhrasesRef = useRef<Phrase[]>(phrases);
+
+  const shufflePhrases = (items: Phrase[]) => {
+    const next = [...items];
+    for (let index = next.length - 1; index > 0; index -= 1) {
+      const randomIndex = Math.floor(Math.random() * (index + 1));
+      [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
+    }
+    return next;
+  };
 
   const availableSpanishVoices = useMemo(
     () => voicesLoaded.filter(voice => voice.lang.toLowerCase().startsWith('es')),
@@ -146,12 +167,12 @@ export default function ReviewModal({
   };
 
   const queueNextPhraseAfterPlayback = () => {
-    if (!continuousAudioEnabledRef.current || showEditModalRef.current || !openRef.current) return;
+    if ((!continuousAudioEnabledRef.current && !loopAudioEnabledRef.current) || showEditModalRef.current || !openRef.current) return;
 
     window.setTimeout(async () => {
-      if (!continuousAudioEnabledRef.current || showEditModalRef.current || !openRef.current) return;
+      if ((!continuousAudioEnabledRef.current && !loopAudioEnabledRef.current) || showEditModalRef.current || !openRef.current) return;
 
-      const currentPhrase = phrases[currentIndexRef.current];
+      const currentPhrase = sessionPhrases[currentIndexRef.current];
       if (currentPhrase) {
         try {
           await markPhraseAsReviewed(currentPhrase.id);
@@ -161,7 +182,16 @@ export default function ReviewModal({
       }
 
       if (currentIndexRef.current >= phrasesLengthRef.current - 1) {
+        if (loopAudioEnabledRef.current && completedLoopCycles < loopCycleCount) {
+          const nextCycle = completedLoopCycles + 1;
+          const nextPhrases = loopShuffleEachCycle ? shufflePhrases(originalPhrasesRef.current) : [...originalPhrasesRef.current];
+          setCompletedLoopCycles(nextCycle);
+          setSessionPhrases(nextPhrases);
+          setCurrentIndex(0);
+          return;
+        }
         setContinuousAudioEnabled(false);
+        setLoopAudioEnabled(false);
         setAudioEnabled(false);
         onOpenChange(false);
         return;
@@ -272,12 +302,16 @@ export default function ReviewModal({
 
   useEffect(() => {
     if (open) {
+      originalPhrasesRef.current = phrases;
+      setSessionPhrases(initialAudioMode === 'loop' && initialLoopShuffle ? shufflePhrases(phrases) : phrases);
       setCurrentIndex(0);
       setShowNotes(true);
       prevCategoryRef.current = null;
       setBadgePopKey(0);
       setAudioEnabled(initialAudioMode !== 'off');
       setContinuousAudioEnabled(initialAudioMode === 'continuous');
+      setLoopAudioEnabled(initialAudioMode === 'loop');
+      setCompletedLoopCycles(1);
       setAudioProvider('browser');
       setServiceVoiceName(null);
       setAudioStatusLoading(true);
@@ -290,7 +324,18 @@ export default function ReviewModal({
     } else {
       stopSpeech();
     }
-  }, [initialAudioMode, open]);
+  }, [initialAudioMode, initialLoopShuffle, open, phrases]);
+
+  useEffect(() => {
+    if (!open) return;
+    originalPhrasesRef.current = phrases;
+    setSessionPhrases(phrases);
+    setCurrentIndex(0);
+    prevCategoryRef.current = null;
+    setBadgePopKey(0);
+    setReviewError(null);
+    stopSpeech();
+  }, [open, phrases]);
 
   useEffect(() => {
     if (!open) return;
@@ -357,12 +402,16 @@ export default function ReviewModal({
   }, [continuousAudioEnabled]);
 
   useEffect(() => {
+    loopAudioEnabledRef.current = loopAudioEnabled;
+  }, [loopAudioEnabled]);
+
+  useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
   useEffect(() => {
-    phrasesLengthRef.current = phrases.length;
-  }, [phrases.length]);
+    phrasesLengthRef.current = sessionPhrases.length;
+  }, [sessionPhrases.length]);
 
   useEffect(() => {
     openRef.current = open;
@@ -406,8 +455,8 @@ export default function ReviewModal({
   }, [open, currentIndex, phrases.length, showEditModal]);
 
   useEffect(() => {
-    if (!open || phrases.length === 0) return;
-    const phrase = phrases[currentIndex];
+    if (!open || sessionPhrases.length === 0) return;
+    const phrase = sessionPhrases[currentIndex];
     const prev = prevCategoryRef.current;
     const categoryChanged = prev && (prev.categoryId !== phrase.categoryId || prev.subcategoryId !== phrase.subcategoryId);
 
@@ -416,12 +465,12 @@ export default function ReviewModal({
     }
 
     prevCategoryRef.current = { categoryId: phrase.categoryId, subcategoryId: phrase.subcategoryId };
-  }, [currentIndex, open]);
+  }, [currentIndex, open, sessionPhrases]);
 
   useEffect(() => {
-    if (!open || audioStatusLoading || !audioEnabled || showEditModal || phrases.length === 0) return;
-    speakPhrase(buildAudioScript(phrases[currentIndex]));
-  }, [audioEnabled, audioStatusLoading, currentIndex, open, showEditModal, preferredVoice, phrases]);
+    if (!open || audioStatusLoading || !audioEnabled || showEditModal || sessionPhrases.length === 0) return;
+    speakPhrase(buildAudioScript(sessionPhrases[currentIndex]));
+  }, [audioEnabled, audioStatusLoading, currentIndex, open, showEditModal, preferredVoice, sessionPhrases]);
 
   useEffect(() => {
     if (showEditModal) {
@@ -429,14 +478,14 @@ export default function ReviewModal({
     }
   }, [showEditModal]);
 
-  if (!open || phrases.length === 0) return null;
+  if (!open || sessionPhrases.length === 0) return null;
 
-  const currentPhrase = phrases[currentIndex];
+  const currentPhrase = sessionPhrases[currentIndex];
   const category = categories.find(c => c.id === currentPhrase.categoryId);
   const subcategory = category?.subcategories.find(s => s.id === currentPhrase.subcategoryId);
 
   const handleNext = () => {
-    if (currentIndex < phrases.length - 1) {
+    if (currentIndex < sessionPhrases.length - 1) {
       setCurrentIndex(prev => prev + 1);
     }
   };
@@ -449,7 +498,7 @@ export default function ReviewModal({
 
   const handleMarkAsReviewed = async () => {
     const phraseId = currentPhrase.id;
-    const hasNext = currentIndex < phrases.length - 1;
+    const hasNext = currentIndex < sessionPhrases.length - 1;
 
     try {
       setPendingReviewCount(count => count + 1);
@@ -482,6 +531,7 @@ export default function ReviewModal({
 
     setAudioError(null);
     setContinuousAudioEnabled(false);
+    setLoopAudioEnabled(false);
     setAudioEnabled(true);
     speakPhrase(buildAudioScript(currentPhrase));
   };
@@ -494,6 +544,7 @@ export default function ReviewModal({
     setContinuousAudioEnabled((prev) => {
       const next = !prev;
       if (next) {
+        setLoopAudioEnabled(false);
         setAudioEnabled(true);
         setTimeout(() => {
           speakPhrase(buildAudioScript(currentPhrase));
@@ -547,6 +598,20 @@ export default function ReviewModal({
     }
 
     speakPhrase(buildAudioScript(currentPhrase));
+  };
+
+  const handleConfirmLoopAudio = () => {
+    const firstCyclePhrases = loopShuffleEachCycle ? shufflePhrases(originalPhrasesRef.current) : [...originalPhrasesRef.current];
+    setSessionPhrases(firstCyclePhrases);
+    setCurrentIndex(0);
+    setCompletedLoopCycles(1);
+    setContinuousAudioEnabled(false);
+    setLoopAudioEnabled(true);
+    setAudioEnabled(true);
+    setShowLoopSetup(false);
+    setTimeout(() => {
+      speakPhrase(buildAudioScript(firstCyclePhrases[0]));
+    }, 0);
   };
 
   const handleEditSave = (formData: any) => {
@@ -635,14 +700,14 @@ export default function ReviewModal({
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Sesión de Repaso</h2>
                 <p className="text-xs text-muted-foreground">
-                  Repasando frases de: {sessionLabel || category?.name || 'Todas'}
+                  Repasando frases de: {sessionLabel || category?.name || 'Todas'}{loopAudioEnabled ? ` · Bucle ${completedLoopCycles}/${loopCycleCount}` : ''}
                 </p>
               </div>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground">Progreso</p>
               <p className="text-sm font-semibold text-foreground">
-                {currentIndex + 1} de {phrases.length}
+                {currentIndex + 1} de {sessionPhrases.length}
               </p>
             </div>
           </div>
@@ -672,8 +737,29 @@ export default function ReviewModal({
 
             <button
               type="button"
+              onClick={() => {
+                if (loopAudioEnabled) {
+                  setLoopAudioEnabled(false);
+                  setAudioEnabled(false);
+                  stopSpeech();
+                  return;
+                }
+                setShowLoopSetup(true);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                loopAudioEnabled
+                  ? 'bg-primary/10 text-primary border border-primary/20'
+                  : 'border border-border bg-background text-foreground'
+              }`}
+            >
+              <Repeat className="h-4 w-4" />
+              {loopAudioEnabled ? 'Bucle activo' : 'Audio en bucle'}
+            </button>
+
+            <button
+              type="button"
               onClick={handlePauseResume}
-              disabled={audioStatusLoading || (!audioEnabled && phrases.length === 0)}
+              disabled={audioStatusLoading || (!audioEnabled && sessionPhrases.length === 0)}
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
             >
               {isSpeaking && !isPaused ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -713,9 +799,9 @@ export default function ReviewModal({
               <Settings2 className="h-4 w-4" />
               {showAudioSettings ? 'Ocultar ajustes' : 'Ajustes de audio'}
             </button>
-            {continuousAudioEnabled && (
+            {(continuousAudioEnabled || loopAudioEnabled) && (
               <span className="text-xs text-primary">
-                La sesion avanzara sola al terminar cada frase.
+                {loopAudioEnabled ? 'La sesión repetirá el ciclo configurado automáticamente.' : 'La sesion avanzara sola al terminar cada frase.'}
               </span>
             )}
           </div>
@@ -809,7 +895,7 @@ export default function ReviewModal({
       <div className="h-1 w-full bg-muted">
         <div
           className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${((currentIndex + 1) / phrases.length) * 100}%` }}
+                  style={{ width: `${((currentIndex + 1) / sessionPhrases.length) * 100}%` }}
         />
       </div>
 
@@ -913,12 +999,12 @@ export default function ReviewModal({
               onClick={handleMarkAsReviewed}
               className="flex-1 max-w-md rounded-xl bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {currentIndex < phrases.length - 1 ? '✓ Repasada' : '✓ Finalizar Repaso'}
+              {currentIndex < sessionPhrases.length - 1 ? '✓ Repasada' : '✓ Finalizar Repaso'}
             </button>
 
             <button
               onClick={handleNext}
-              disabled={currentIndex === phrases.length - 1}
+              disabled={currentIndex === sessionPhrases.length - 1}
               className="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Siguiente
@@ -936,6 +1022,80 @@ export default function ReviewModal({
         categories={categories}
         onSave={handleEditSave}
       />
+
+      {showLoopSetup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl">
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-foreground">Configurar audio en bucle</h3>
+              <p className="text-sm text-muted-foreground">Define cuántas veces quieres repetir todo el grupo y si quieres mezclar el orden entre ciclos.</p>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Número de ciclos completos</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={loopCycleCount}
+                  onChange={(event) => {
+                    const parsed = Number.parseInt(event.target.value, 10);
+                    if (Number.isNaN(parsed)) return;
+                    setLoopCycleCount(Math.max(1, parsed));
+                  }}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+
+              <input
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                value={loopCycleCount}
+                onChange={(event) => {
+                  const parsed = Number.parseInt(event.target.value, 10);
+                  if (!Number.isNaN(parsed)) {
+                    setLoopCycleCount(parsed);
+                  }
+                }}
+                className="w-full accent-primary"
+              />
+
+              <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Modo aleatorio por ciclo</p>
+                  <p className="text-xs text-muted-foreground">Cada vuelta puede cambiar el orden de las frases.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLoopShuffleEachCycle(prev => !prev)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${loopShuffleEachCycle ? 'bg-primary' : 'bg-muted'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${loopShuffleEachCycle ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowLoopSetup(false)}
+                className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLoopAudio}
+                className="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Iniciar bucle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

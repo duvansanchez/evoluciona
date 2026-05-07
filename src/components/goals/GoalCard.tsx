@@ -38,11 +38,12 @@ interface GoalCardProps {
 
 export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEdit, onFocusGoal, onDelete, onToggleSubGoal, onSkipSubGoalToday, onSkipToday, onMakeCurrent }: GoalCardProps) {
   const [expanded, setExpanded] = useState(true);
-  const completedSubs = goal.subGoals.filter(s => s.completed).length;
+  const visibleSubGoals = goal.subGoals.filter(s => s.active !== false);
+  const completedSubs = visibleSubGoals.filter(s => s.completed).length;
 
   // Agrupar subobjetivos por carpeta
-  const folderedSubs = goal.subGoals.filter(s => s.folderId);
-  const unfoldered = goal.subGoals.filter(s => !s.folderId);
+  const folderedSubs = visibleSubGoals.filter(s => s.folderId);
+  const unfoldered = visibleSubGoals.filter(s => !s.folderId);
   const usedFolderIds = [...new Set(folderedSubs.map(s => s.folderId!))];
   const grouped = usedFolderIds.map(fid => ({
     folder: folders.find(f => f.id === fid),
@@ -75,7 +76,7 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
               {goal.icon && <span className="text-base">{goal.icon}</span>}
               {goal.title}
             </h3>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className={`flex items-center gap-1 transition-opacity ${isSkipped ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
               {!goal.completed && (
                 <button
                   onClick={() => onFocusGoal?.(goal.id)}
@@ -88,10 +89,13 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
               {goal.recurring && !goal.completed && (
                 <button
                   onClick={() => onSkipToday?.(goal.id)}
-                  className="p-1 rounded hover:bg-accent text-muted-foreground"
-                  title={isSkipped ? 'Mostrar hoy' : 'Saltar hoy'}
+                  className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${isSkipped ? 'text-amber-700 hover:bg-amber-500/10' : 'hover:bg-accent text-muted-foreground'}`}
+                  title={isSkipped ? 'Quitar salto' : 'Saltar hoy'}
                 >
-                  {isSkipped ? <Eye className="h-3.5 w-3.5" /> : <SkipForward className="h-3.5 w-3.5" />}
+                  <span className="inline-flex items-center gap-1">
+                    {isSkipped ? <Eye className="h-3.5 w-3.5" /> : <SkipForward className="h-3.5 w-3.5" />}
+                    {isSkipped ? 'Quitar salto' : null}
+                  </span>
                 </button>
               )}
               <button onClick={() => onEdit?.(goal.id)} className="p-1 rounded hover:bg-accent text-muted-foreground"><Edit2 className="h-3.5 w-3.5" /></button>
@@ -151,26 +155,26 @@ export default function GoalCard({ goal, isSkipped, folders = [], onToggle, onEd
           )}
 
           {/* SubGoals */}
-          {goal.subGoals.length > 0 && (
+          {visibleSubGoals.length > 0 && (
             <div className="mt-3">
               <button
                 onClick={() => setExpanded(!expanded)}
                 className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                Subobjetivos ({completedSubs}/{goal.subGoals.length})
+                Subobjetivos ({completedSubs}/{visibleSubGoals.length})
               </button>
               {/* Progress bar */}
               <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    completedSubs === goal.subGoals.length
+                    completedSubs === visibleSubGoals.length
                       ? 'bg-green-500'
                       : completedSubs > 0
                         ? 'bg-primary'
                         : 'bg-muted-foreground/30'
                   }`}
-                  style={{ width: `${(completedSubs / goal.subGoals.length) * 100}%` }}
+                  style={{ width: `${visibleSubGoals.length > 0 ? (completedSubs / visibleSubGoals.length) * 100 : 0}%` }}
                 />
               </div>
               {expanded && (
@@ -230,6 +234,9 @@ function SubGoalRow({
       </button>
       <span className={`flex-1 ${sub.completed || sub.skipped ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
         {sub.title}
+      </span>
+      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${sub.recurring ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+        {sub.recurring ? 'Recurrente' : 'Normal'}
       </span>
       {sub.skipped && (
         <span

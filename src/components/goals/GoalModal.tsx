@@ -144,6 +144,8 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
       id: `new-${Date.now()}`,
       title: newSubGoalTitle.trim(),
       completed: false,
+      recurring: false,
+      active: true,
     };
     update('subGoals', [...form.subGoals, newSub]);
     setNewSubGoalTitle('');
@@ -204,6 +206,14 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
   };
 
   const parentGoals = goals.filter(g => g.isParent && g.id !== goal?.id);
+  const linkedRutina = form.linkedRutinaId ? rutinas.find(r => r.id.toString() === form.linkedRutinaId) : undefined;
+  const isDisabledInLinkedRutina = Boolean(
+    goal
+    && linkedRutina
+    && (linkedRutina.objetivo_ids_desactivados ?? []).includes(Number(goal.id))
+  );
+  const activeSubGoals = form.subGoals.filter(sub => sub.active !== false);
+  const inactiveSubGoals = form.subGoals.filter(sub => sub.active === false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -422,13 +432,18 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
                         <option value="">Sin rutina vinculada</option>
                         {rutinas.map(r => (
                           <option key={r.id} value={r.id}>
-                            {r.nombre} · {r.parte_dia === 'morning' ? 'Mañana' : r.parte_dia === 'afternoon' ? 'Tarde' : 'Noche'}
+                            {r.nombre} · {(r.partes_dia?.length ? r.partes_dia : [r.parte_dia]).map(part => part === 'morning' ? 'Mañana' : part === 'afternoon' ? 'Tarde' : 'Noche').join(' · ')}
                           </option>
                         ))}
                       </select>
                       <p className="mt-2 text-xs text-muted-foreground">
                         Si vinculas este objetivo a una rutina, solo aparecerá en Objetivos cuando esa rutina esté programada para hoy.
                       </p>
+                      {isDisabledInLinkedRutina && linkedRutina ? (
+                        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                          Este objetivo está desactivado en la rutina <strong>{linkedRutina.nombre}</strong>. Seguirá vinculado, pero no aparecerá en Objetivos mientras siga desactivado allí.
+                        </div>
+                      ) : null}
                     </FieldGroup>
                   </div>
                 )}
@@ -467,7 +482,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
             }
           >
             <div className="space-y-4">
-              {form.subGoals.length > 0 && (
+              {activeSubGoals.length > 0 && (
                 <DragDropContext onDragEnd={handleDragEnd}>
                   <Droppable droppableId="subgoals-list">
                     {(provided, snapshot) => (
@@ -480,7 +495,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
                         {...provided.droppableProps}
                         ref={provided.innerRef}
                       >
-                        {form.subGoals.map((sub, index) => (
+                        {activeSubGoals.map((sub, index) => (
                           <Draggable key={sub.id} draggableId={String(sub.id)} index={index}>
                             {(provided, snapshot) => {
                               const item = (
@@ -490,7 +505,7 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
                                 className={`flex items-center gap-3 group/sub p-2 rounded-lg transition-all ${
                                   snapshot.isDragging
                                     ? 'bg-card border-2 border-primary shadow-xl'
-                                    : 'hover:bg-muted/50 border-2 border-transparent'
+                                    : sub.active === false ? 'border-2 border-dashed border-amber-500/30 bg-amber-500/5 opacity-80' : 'hover:bg-muted/50 border-2 border-transparent'
                                 }`}
                               >
                                 <div
@@ -517,9 +532,23 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
                                 <input
                                   value={sub.title}
                                   onChange={e => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, title: e.target.value } : s))}
-                                  className={`flex-1 bg-transparent text-sm outline-none ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}
+                                  className={`flex-1 bg-transparent text-sm outline-none ${sub.completed ? 'line-through text-muted-foreground' : 'text-foreground'} ${sub.active === false ? 'opacity-70' : ''}`}
                                   maxLength={200}
                                 />
+                                <button
+                                  type="button"
+                                  onClick={() => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, recurring: !s.recurring } : s))}
+                                  className={`rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${sub.recurring ? 'bg-primary/10 text-primary border border-primary/20' : 'border border-border text-muted-foreground hover:bg-muted'}`}
+                                >
+                                  {sub.recurring ? 'Recurrente' : 'Normal'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, active: s.active === false ? true : false } : s))}
+                                  className={`rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${sub.active === false ? 'bg-amber-500/10 text-amber-700 border border-amber-500/20 dark:text-amber-300' : 'border border-border text-muted-foreground hover:bg-muted'}`}
+                                >
+                                  {sub.active === false ? 'Desactivado' : 'Activo'}
+                                </button>
                                 {/* Folder selector */}
                                 {folders.length > 0 && (
                                   <select
@@ -565,6 +594,37 @@ export default function GoalModal({ open, onOpenChange, goal, goals, rutinas, fo
                     )}
                   </Droppable>
                 </DragDropContext>
+              )}
+
+              {inactiveSubGoals.length > 0 && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                    Subobjetivos desactivados
+                  </p>
+                  <div className="space-y-2">
+                    {inactiveSubGoals.map((sub) => (
+                      <div
+                        key={`inactive-${sub.id}`}
+                        className="flex items-center gap-3 rounded-lg border border-dashed border-amber-500/30 bg-background/70 p-2 opacity-85"
+                      >
+                        <span className="flex-1 text-sm text-muted-foreground">{sub.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => update('subGoals', form.subGoals.map(s => s.id === sub.id ? { ...s, active: true } : s))}
+                          className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700 transition-colors dark:text-emerald-300"
+                        >
+                          Activar
+                        </button>
+                        <button
+                          onClick={() => removeSubGoal(sub.id)}
+                          className="p-1 rounded-lg text-destructive hover:bg-destructive/10 transition-all"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Add new subgoal */}

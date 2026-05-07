@@ -394,10 +394,12 @@ class RutinaBloqueResponse(BaseModel):
 class RutinaCreate(BaseModel):
     nombre: str
     parte_dia: str
+    partes_dia: List[str] = []
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
     duracion_proyectada_minutos: Optional[int] = Field(None, ge=1, le=1440)
+    objetivo_ids_desactivados: List[int] = []
     dias_semana: List[int] = []
     bloques: List[RutinaBloqueCreate] = []
 
@@ -405,10 +407,12 @@ class RutinaCreate(BaseModel):
 class RutinaUpdate(BaseModel):
     nombre: Optional[str] = None
     parte_dia: Optional[str] = None
+    partes_dia: Optional[List[str]] = None
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
     duracion_proyectada_minutos: Optional[int] = Field(None, ge=1, le=1440)
+    objetivo_ids_desactivados: Optional[List[int]] = None
     dias_semana: Optional[List[int]] = None
     bloques: Optional[List[RutinaBloqueCreate]] = None
 
@@ -417,10 +421,12 @@ class RutinaResponse(BaseModel):
     id: int
     nombre: str
     parte_dia: str
+    partes_dia: List[str] = []
     color: Optional[str] = None
     categoria: Optional[str] = None
     descripcion: Optional[str] = None
     duracion_proyectada_minutos: Optional[int] = None
+    objetivo_ids_desactivados: List[int] = []
     dias_semana: List[int] = []
     activa: bool
     fecha_creacion: Optional[datetime] = None
@@ -471,6 +477,7 @@ class ReviewPlanConfig(BaseModel):
     shuffle: bool = False
     daily_limit: Optional[int] = None
     excluded_phrase_ids: List[int] = []
+    target_limits: dict[str, Optional[int]] = {}
 
 
 class ReviewPlanCreate(BaseModel):

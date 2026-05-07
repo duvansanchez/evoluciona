@@ -64,6 +64,16 @@ const getEffectiveCompleted = (item: any): boolean => {
   return true;
 };
 
+const isSubGoalVisibleOnDate = (subGoal: any, isoDate: string): boolean => {
+  if (subGoal?.activa === false) return false;
+  if (subGoal?.recurrente === true) return true;
+  if (!subGoal?.fecha_creacion) return false;
+
+  const createdAt = new Date(subGoal.fecha_creacion);
+  if (Number.isNaN(createdAt.getTime())) return false;
+  return getLocalDateString(createdAt) === isoDate;
+};
+
 // Filtrar objetivos según reglas de visualización por fecha
 const shouldShowGoal = (item: any, goalCategory: GoalCategory): boolean => {
   const today = new Date();
@@ -238,20 +248,24 @@ export default function Goals() {
           filteredGoals.map(async (goal) => {
             try {
               const subgoalsData = await goalsAPI.getSubGoals(goal.id);
-              const mappedSubgoals = subgoalsData
+              const visibleSubgoalsData = subgoalsData.filter((sub: any) => isSubGoalVisibleOnDate(sub, todayKey));
+              const mappedSubgoals = visibleSubgoalsData
                 .map((sub: any): SubGoal => ({
                   id: sub.id.toString(),
                   title: sub.titulo,
                   completed: sub.completado || false,
+                  recurring: Boolean(sub.recurrente),
+                  active: sub.activa !== false,
                   notes: sub.notas || undefined,
+                  createdAt: sub.fecha_creacion || undefined,
                   completedAt: sub.fecha_completado || undefined,
                   priority: undefined, // Los subobjetivos no tienen prioridad en  la tabla subobjetivos
                   focusTimeSeconds: sub.tiempo_focus || 0,
                   folderId: sub.folder_id ?? undefined,
                 }))
                 .sort((a, b) => {
-                  const orderA = subgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
-                  const orderB = subgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
+                  const orderA = visibleSubgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
+                  const orderB = visibleSubgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
                   return orderA - orderB;
                 });
               return { ...goal, subGoals: mappedSubgoals };
@@ -399,19 +413,23 @@ export default function Goals() {
         historicGoals.map(async (goal) => {
           try {
             const subgoalsData = await goalsAPI.getSubGoals(goal.id);
-            const mappedSubgoals = subgoalsData
+            const visibleSubgoalsData = subgoalsData.filter((sub: any) => isSubGoalVisibleOnDate(sub, todayKey));
+            const mappedSubgoals = visibleSubgoalsData
               .map((sub: any): SubGoal => ({
                 id: sub.id.toString(),
                 title: sub.titulo,
                 completed: sub.completado || false,
+                recurring: Boolean(sub.recurrente),
+                active: sub.activa !== false,
                 notes: sub.notas || undefined,
+                createdAt: sub.fecha_creacion || undefined,
                 completedAt: sub.fecha_completado || undefined,
                 priority: undefined,
                 focusTimeSeconds: sub.tiempo_focus || 0,
               }))
               .sort((a: SubGoal, b: SubGoal) => {
-                const orderA = subgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
-                const orderB = subgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
+                const orderA = visibleSubgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
+                const orderB = visibleSubgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
                 return orderA - orderB;
               });
             return { ...goal, subGoals: mappedSubgoals };
@@ -449,12 +467,20 @@ export default function Goals() {
   const isSubGoalSkippedToday = (subGoalId: string) => skippedSubGoalIds.has(subGoalId);
 
   const getRutinasVinculadas = (goalId: string) =>
+    rutinasCatalog.filter(r =>
+      (r.objetivos ?? []).some(o => o.id.toString() === goalId)
+      && !(r.objetivo_ids_desactivados ?? []).includes(Number(goalId))
+    );
+
+  const getRutinasAsociadas = (goalId: string) =>
     rutinasCatalog.filter(r => (r.objetivos ?? []).some(o => o.id.toString() === goalId));
 
   const shouldShowGoalByRutinaProgramming = (goal: Goal) => {
     if (!goal.recurring) return true;
 
+    const linkedRutinasAll = getRutinasAsociadas(goal.id);
     const linkedRutinas = getRutinasVinculadas(goal.id);
+    if (linkedRutinasAll.length > 0 && linkedRutinas.length === 0) return false;
     if (linkedRutinas.length === 0) return true;
 
     return todayAsignaciones.some(asig => linkedRutinas.some(r => r.id === asig.rutina.id));
@@ -489,7 +515,9 @@ export default function Goals() {
 
   const syncRutinaCompletionForGoal = (goalId: string, updatedGoals: Goal[], nextSkippedGoalIds = skippedGoalIds) => {
     todayAsignaciones.forEach(asig => {
-      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
+      const rutinaObjIds = (asig.rutina.objetivos ?? [])
+        .filter(o => !(asig.rutina.objetivo_ids_desactivados ?? []).includes(o.id))
+        .map(o => o.id.toString());
       if (rutinaObjIds.length === 0 || !rutinaObjIds.includes(goalId)) return;
 
       const allDone = rutinaObjIds.every(oid => {
@@ -681,6 +709,8 @@ export default function Goals() {
               const createdSubGoal = await goalsAPI.createSubGoal(editingGoal.id, {
                 titulo: sub.title,
                 completado: sub.completed || false,
+                recurrente: sub.recurring || false,
+                activa: sub.active !== false,
                 notas: sub.notes || null,
                 orden: index,
                 folder_id: sub.folderId ?? null,
@@ -695,6 +725,8 @@ export default function Goals() {
           await persistSubGoalUpdate(sub.id, {
             title: sub.title,
             completed: sub.completed,
+            recurring: sub.recurring,
+            active: sub.active,
             focusTimeSeconds: sub.focusTimeSeconds,
             notes: sub.notes,
             folderId: sub.folderId,
@@ -744,6 +776,8 @@ export default function Goals() {
               const createdSubGoal = await goalsAPI.createSubGoal(createdGoal.id, {
                 titulo: subGoal.title,
                 completado: subGoal.completed || false,
+                recurrente: subGoal.recurring || false,
+                activa: subGoal.active !== false,
                 notas: subGoal.notes || null,
                 orden: i,
                 folder_id: subGoal.folderId ?? null,
@@ -753,7 +787,10 @@ export default function Goals() {
                 id: createdSubGoal.id,
                 title: subGoal.title,
                 completed: subGoal.completed || false,
+                recurring: subGoal.recurring,
+                active: subGoal.active,
                 notes: subGoal.notes,
+                createdAt: createdSubGoal.fecha_creacion || undefined,
               });
             } catch (subError) {
               console.error('❌ Error creating subgoal:', subError);
@@ -853,6 +890,8 @@ export default function Goals() {
     const payload: Record<string, unknown> = {};
     if (typeof updates.title === 'string') payload.titulo = updates.title;
     if (typeof updates.completed === 'boolean') payload.completado = updates.completed;
+    if (typeof updates.recurring === 'boolean') payload.recurrente = updates.recurring;
+    if (typeof updates.active === 'boolean') payload.activa = updates.active;
     if (typeof updates.focusTimeSeconds === 'number') payload.tiempo_focus = updates.focusTimeSeconds;
     if (typeof updates.notes === 'string') payload.notas = updates.notes;
     if (typeof orden === 'number') payload.orden = orden;
@@ -1179,7 +1218,9 @@ export default function Goals() {
   useEffect(() => {
     if (todayAsignaciones.length === 0 || goals.length === 0) return;
     todayAsignaciones.forEach(asig => {
-      const rutinaObjIds = (asig.rutina.objetivos ?? []).map(o => o.id.toString());
+      const rutinaObjIds = (asig.rutina.objetivos ?? [])
+        .filter(o => !(asig.rutina.objetivo_ids_desactivados ?? []).includes(o.id))
+        .map(o => o.id.toString());
       if (rutinaObjIds.length === 0) return;
 
       const allDone = rutinaObjIds.every(oid => {
@@ -1307,6 +1348,7 @@ export default function Goals() {
             .map(asig => {
               const goalsInRutina = sorted.filter(g =>
                 asig.rutina.objetivos.some(o => o.id.toString() === g.id)
+                && !(asig.rutina.objetivo_ids_desactivados ?? []).includes(Number(g.id))
               );
               return { asig, goals: goalsInRutina };
             })
@@ -1458,20 +1500,24 @@ export default function Goals() {
             // Mientras tanto, refrescar datos en background
             try {
               const subgoalsData = await goalsAPI.getSubGoals(focusParentGoal.id);
-              const mappedSubgoals = subgoalsData
+              const visibleSubgoalsData = subgoalsData.filter((sub: any) => isSubGoalVisibleOnDate(sub, todayKey));
+              const mappedSubgoals = visibleSubgoalsData
                 .map((sub: any): SubGoal => ({
                   id: sub.id.toString(),
                   title: sub.titulo,
                   completed: sub.completado || false,
+                  recurring: Boolean(sub.recurrente),
+                  active: sub.activa !== false,
                   notes: sub.notas || undefined,
+                  createdAt: sub.fecha_creacion || undefined,
                   completedAt: sub.fecha_completado || undefined,
                   priority: undefined,
                   focusTimeSeconds: sub.tiempo_focus || 0,
                   folderId: sub.folder_id ?? undefined,
                 }))
                 .sort((a, b) => {
-                  const orderA = subgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
-                  const orderB = subgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
+                  const orderA = visibleSubgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
+                  const orderB = visibleSubgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
                   return orderA - orderB;
                 });
               
