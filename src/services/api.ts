@@ -38,6 +38,13 @@ interface PaginatedResponse<T> {
  * Goals API
  */
 export const goalsAPI = {
+  /** Carga todos los objetivos con subobjetivos embebidos en 2 queries (sin N+1). */
+  getAllGoalsWithSubgoals: async (): Promise<any[]> => {
+    const response = await fetch(`${API_BASE_URL}/goals/all`);
+    if (!response.ok) throw new Error('Error fetching goals with subgoals');
+    return response.json();
+  },
+
   getGoals: async (page = 1, page_size = 50) => {
     const response = await fetch(`${API_BASE_URL}/goals?page=${page}&page_size=${page_size}`);
     if (!response.ok) throw new Error('Error fetching goals');

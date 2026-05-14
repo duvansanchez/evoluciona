@@ -131,6 +131,82 @@ class GoalService:
         return goals, total
     
     @staticmethod
+    def get_all_goals_with_subgoals(db: Session) -> List[dict]:
+        """Devuelve todos los objetivos con subobjetivos embebidos en solo 2 queries.
+        Elimina el problema N+1 de cargar subobjetivos uno a uno.
+        """
+        GoalService.reset_stale_recurring_goals(db)
+
+        goals = (
+            db.query(Goal)
+            .order_by(Goal.fecha_creacion.desc())
+            .all()
+        )
+        if not goals:
+            return []
+
+        goal_ids = [g.id for g in goals]
+        subgoals = (
+            db.query(SubGoal)
+            .filter(SubGoal.objetivo_id.in_(goal_ids))
+            .order_by(SubGoal.orden.asc(), SubGoal.id.asc())
+            .all()
+        )
+
+        subs_by_goal: dict = {}
+        for sub in subgoals:
+            subs_by_goal.setdefault(sub.objetivo_id, []).append({
+                "id": sub.id,
+                "objetivo_id": sub.objetivo_id,
+                "titulo": sub.titulo,
+                "completado": sub.completado,
+                "fecha_completado": sub.fecha_completado.isoformat() if sub.fecha_completado else None,
+                "recurrente": sub.recurrente,
+                "activa": sub.activa,
+                "fecha_creacion": sub.fecha_creacion.isoformat() if sub.fecha_creacion else None,
+                "orden": sub.orden,
+                "tiempo_focus": sub.tiempo_focus or 0,
+                "notas": sub.notas,
+                "folder_id": sub.folder_id,
+            })
+
+        result = []
+        for g in goals:
+            result.append({
+                "id": g.id,
+                "user_id": g.user_id,
+                "titulo": g.titulo,
+                "icono": g.icono,
+                "descripcion": g.descripcion,
+                "categoria": g.categoria,
+                "prioridad": g.prioridad,
+                "completado": g.completado,
+                "fecha_creacion": g.fecha_creacion.isoformat() if g.fecha_creacion else None,
+                "fecha_completado": g.fecha_completado.isoformat() if g.fecha_completado else None,
+                "objetivo_padre_id": g.objetivo_padre_id,
+                "es_padre": g.es_padre,
+                "estado": g.estado,
+                "fecha_inicio": g.fecha_inicio.isoformat() if g.fecha_inicio else None,
+                "fecha_fin": g.fecha_fin.isoformat() if g.fecha_fin else None,
+                "horas_estimadas": g.horas_estimadas,
+                "dificultad": g.dificultad,
+                "etiquetas": g.etiquetas,
+                "recompensa": g.recompensa,
+                "notas_adicionales": g.notas_adicionales,
+                "recurrente": g.recurrente,
+                "frecuencia": g.frecuencia,
+                "fecha_proyeccion_comienzo": g.fecha_proyeccion_comienzo.isoformat() if g.fecha_proyeccion_comienzo else None,
+                "orden": g.orden,
+                "parte_dia": g.parte_dia,
+                "tiempo_focus": g.tiempo_focus,
+                "fecha_programada": g.fecha_programada.isoformat() if g.fecha_programada else None,
+                "programado_para": g.programado_para,
+                "saltado_hoy": False,
+                "subobjetivos": subs_by_goal.get(g.id, []),
+            })
+        return result
+
+    @staticmethod
     def get_goal(db: Session, goal_id: int) -> Optional[Goal]:
         """Obtener objetivo por ID."""
         return db.query(Goal).filter(Goal.id == goal_id).first()

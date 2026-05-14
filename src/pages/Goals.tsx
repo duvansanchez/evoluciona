@@ -215,98 +215,86 @@ export default function Goals() {
 
   // Cargar objetivos del backend
   const loadGoals = async () => {
-      try {
-        setLoading(true);
-        const completedEntries = await goalsAPI.getCompletedGoals(todayKey).catch(() => []);
-        const completedRecurringGoalIds = new Set(
-          completedEntries.map(entry => entry.goal_id.toString())
-        );
-        
-        // Cargar primera página para obtener el total
-        const firstPage = await goalsAPI.getGoals(1, 100);
-        const totalPages = firstPage.pages;
-        console.log(`📊 Total de páginas: ${totalPages}, Total objetivos: ${firstPage.total}`);
-        
-        // Cargar todas las páginas restantes en paralelo
-        const pagePromises = [];
-        for (let page = 2; page <= totalPages; page++) {
-          pagePromises.push(goalsAPI.getGoals(page, 100));
-        }
-        
-        const restPages = await Promise.all(pagePromises);
-        
-        // Combinar todos los items
-        const allItems = [
-          ...firstPage.items,
-          ...restPages.flatMap(p => p.items)
-        ];
-        
-        console.log(`✅ Total objetivos cargados: ${allItems.length}`);
-        
-        // Mapear PRIMERO (para tener la categoría en inglés)
-        const allMapped = allItems.map(item => mapBackendGoal(item, completedRecurringGoalIds));
-        setAllGoalsMapped(allMapped);
-        setHistoricSubgoalsLoaded(false);
-        
-        console.log('📋 Categorías SIN filtro de fecha:', allMapped.reduce((acc, g) => {
-          acc[g.category] = (acc[g.category] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>));
-        
-        // Ahora filtrar usando la categoría ya mapeada
-        const filteredGoals = allMapped.filter(goal => shouldShowGoal(
-          allItems.find(item => item.id.toString() === goal.id)!,
-          goal.category
-        ));
-        
-        // Cargar subobjetivos para cada objetivo filtrado
-        const goalsWithSubgoals = await Promise.all(
-          filteredGoals.map(async (goal) => {
-            try {
-              const subgoalsData = await goalsAPI.getSubGoals(goal.id);
-              const visibleSubgoalsData = subgoalsData.filter((sub: any) => isSubGoalVisibleOnDate(sub, todayKey));
-              const mappedSubgoals = visibleSubgoalsData
-                .map((sub: any): SubGoal => ({
-                  id: sub.id.toString(),
-                  title: sub.titulo,
-                  completed: sub.completado || false,
-                  recurring: Boolean(sub.recurrente),
-                  active: sub.activa !== false,
-                  notes: sub.notas || undefined,
-                  createdAt: sub.fecha_creacion || undefined,
-                  completedAt: sub.fecha_completado || undefined,
-                  priority: undefined, // Los subobjetivos no tienen prioridad en  la tabla subobjetivos
-                  focusTimeSeconds: sub.tiempo_focus || 0,
-                  folderId: sub.folder_id ?? undefined,
-                }))
-                .sort((a, b) => {
-                  const orderA = visibleSubgoalsData.find((s: any) => s.id.toString() === a.id)?.orden || 0;
-                  const orderB = visibleSubgoalsData.find((s: any) => s.id.toString() === b.id)?.orden || 0;
-                  return orderA - orderB;
-                });
-              return { ...goal, subGoals: mappedSubgoals };
-            } catch (error) {
-              console.warn(`⚠️ No se pudieron cargar subobjetivos para objetivo ${goal.id}:`, error);
-              return { ...goal, subGoals: [] };
-            }
-          })
-        );
-        
-        console.log('📊 Total objetivos del backend:', allItems.length);
-        console.log('✅ Objetivos visibles tras filtrado POR FECHA:', goalsWithSubgoals.length);
-        console.log('📋 Categorías CON filtro de fecha:', goalsWithSubgoals.reduce((acc, g) => {
-          acc[g.category] = (acc[g.category] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>));
-        console.log('🔸 Objetivos con subobjetivos:', goalsWithSubgoals.filter(g => g.subGoals.length > 0).length);
-        
-        setGoals(goalsWithSubgoals);
-      } catch (error) {
-        console.error('❌ Error loading goals:', error);
-        // En caso de error, mantener los goals vacíos
-      } finally {
-        setLoading(false);
-      }
+    try {
+      setLoading(true);
+
+      // Todo en paralelo: objetivos+subobjetivos, completados y estado de saltados
+      const [
+        allItems,
+        completedEntries,
+        skippedGoalIdsRaw,
+        skippedGoalDetails,
+        skippedSubGoalIdsRaw,
+        skippedSubGoalDetails,
+      ] = await Promise.all([
+        goalsAPI.getAllGoalsWithSubgoals(),
+        goalsAPI.getCompletedGoals(todayKey).catch(() => []),
+        goalsAPI.getSkippedGoals(todayKey).catch(() => []),
+        goalsAPI.getSkippedGoalsDetails(todayKey).catch(() => []),
+        goalsAPI.getSkippedSubGoals(todayKey).catch(() => []),
+        goalsAPI.getSkippedSubGoalsDetails(todayKey).catch(() => []),
+      ]);
+
+      const completedRecurringGoalIds = new Set(
+        completedEntries.map((entry: any) => entry.goal_id.toString())
+      );
+
+      // Actualizar estado de saltados directamente (sin segundo round-trip)
+      setSkippedGoalIds(new Set(skippedGoalIdsRaw.map((id: any) => id.toString())));
+      const goalReasonMap: Record<string, string> = {};
+      skippedGoalDetails.forEach((entry: any) => {
+        if (entry.reason) goalReasonMap[entry.goal_id.toString()] = entry.reason;
+      });
+      setSkipReasonByGoalId(goalReasonMap);
+      setSkippedSubGoalIds(new Set(skippedSubGoalIdsRaw.map((id: any) => id.toString())));
+      const subReasonMap: Record<string, string> = {};
+      skippedSubGoalDetails.forEach((entry: any) => {
+        if (entry.reason) subReasonMap[entry.subgoal_id.toString()] = entry.reason;
+      });
+      setSkipReasonBySubGoalId(subReasonMap);
+
+      const allMapped = allItems.map((item: any) => mapBackendGoal(item, completedRecurringGoalIds));
+      setAllGoalsMapped(allMapped);
+      setHistoricSubgoalsLoaded(false);
+
+      const filteredGoals = allMapped.filter((goal: any) => shouldShowGoal(
+        allItems.find((item: any) => item.id.toString() === goal.id)!,
+        goal.category
+      ));
+
+      // Subobjetivos ya vienen embebidos — sin N+1
+      const goalsWithSubgoals = filteredGoals.map((goal: any) => {
+        const rawItem = allItems.find((item: any) => item.id.toString() === goal.id);
+        const subgoalsData: any[] = rawItem?.subobjetivos ?? [];
+        const visibleSubs = subgoalsData.filter((sub: any) => isSubGoalVisibleOnDate(sub, todayKey));
+        const mappedSubgoals = visibleSubs
+          .map((sub: any): SubGoal => ({
+            id: sub.id.toString(),
+            title: sub.titulo,
+            completed: sub.completado || false,
+            recurring: Boolean(sub.recurrente),
+            active: sub.activa !== false,
+            notes: sub.notas || undefined,
+            createdAt: sub.fecha_creacion || undefined,
+            completedAt: sub.fecha_completado || undefined,
+            priority: undefined,
+            focusTimeSeconds: sub.tiempo_focus || 0,
+            folderId: sub.folder_id ?? undefined,
+          }))
+          .sort((a: SubGoal, b: SubGoal) => {
+            const orderA = visibleSubs.find((s: any) => s.id.toString() === a.id)?.orden ?? 0;
+            const orderB = visibleSubs.find((s: any) => s.id.toString() === b.id)?.orden ?? 0;
+            return orderA - orderB;
+          });
+        return { ...goal, subGoals: mappedSubgoals };
+      });
+
+      setGoals(goalsWithSubgoals);
+    } catch (error) {
+      console.error('Error loading goals:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const refreshSkipStateForToday = useCallback(async () => {
@@ -363,14 +351,8 @@ export default function Goals() {
     goalFoldersAPI.getFolders().then(setFolders).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    void refreshSkipStateForToday();
-  }, [refreshSkipStateForToday]);
-
-  useEffect(() => {
-    if (goals.length === 0) return;
-    void refreshSkipStateForToday();
-  }, [goals.length, refreshSkipStateForToday]);
+  // El estado de saltados se carga dentro de loadGoals en paralelo con los objetivos.
+  // refreshSkipStateForToday se sigue usando para actualizaciones puntuales (skip/unskip).
 
   useEffect(() => {
     setGoals(prev => prev.map(goal => ({

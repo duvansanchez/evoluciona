@@ -95,6 +95,14 @@ def list_completed_goals(
     ]
 
 
+@router.get("/all")
+def list_all_goals_with_subgoals(db: Session = Depends(get_db)):
+    """Devuelve todos los objetivos con subobjetivos embebidos (sin N+1).
+    Usar en lugar de GET /goals + N × GET /goals/{id}/subgoals.
+    """
+    return GoalService.get_all_goals_with_subgoals(db)
+
+
 @router.get("/{goal_id}", response_model=GoalResponse)
 def get_goal(goal_id: int, db: Session = Depends(get_db)):
     """Obtener objetivo por ID."""
