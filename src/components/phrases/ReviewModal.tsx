@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Repeat, Settings2, Square, X } from 'lucide-react';
-import type { Phrase, PhraseCategory } from '../../types';
+import { ChevronLeft, ChevronRight, MessageSquareQuote, NotebookPen, Pencil, Pause, Play, Repeat, Settings2, Square, Trash2, X } from 'lucide-react';
+import type { Phrase, PhraseCategory, PhraseFeedback } from '../../types';
 import PhraseModal from './PhraseModal';
 import { phrasesAPI } from '@/services/api';
+import { getLocalDateString } from '@/lib/utils';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const DEFAULT_AUDIO_RATE = 1;
 const DEFAULT_AUDIO_PITCH = 1;
@@ -59,6 +67,15 @@ export default function ReviewModal({
   const [isPaused, setIsPaused] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [showLoopSetup, setShowLoopSetup] = useState(false);
+  const [feedbackDate, setFeedbackDate] = useState(getLocalDateString());
+  const [feedbackDraft, setFeedbackDraft] = useState('');
+  const [feedbackSaving, setFeedbackSaving] = useState(false);
+  const [feedbackModalError, setFeedbackModalError] = useState<string | null>(null);
+  const [feedbackSidebarError, setFeedbackSidebarError] = useState<string | null>(null);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackHistory, setFeedbackHistory] = useState<Record<string, PhraseFeedback[]>>({});
+  const [feedbackHistoryLoading, setFeedbackHistoryLoading] = useState(false);
+  const [deletingFeedbackDate, setDeletingFeedbackDate] = useState<string | null>(null);
   const prevCategoryRef = useRef<{ categoryId: string | undefined; subcategoryId: string | undefined } | null>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -80,6 +97,31 @@ export default function ReviewModal({
       [next[index], next[randomIndex]] = [next[randomIndex], next[index]];
     }
     return next;
+  };
+
+  const mapFeedbacks = (items: Array<{ id: string; phrase_id: string; date: string; text: string; created_at?: string | null; updated_at?: string | null }>) => {
+    return items.reduce((acc, item) => {
+      acc[item.phrase_id] = {
+        id: item.id,
+        phraseId: item.phrase_id,
+        date: item.date,
+        text: item.text,
+        createdAt: item.created_at || undefined,
+        updatedAt: item.updated_at || undefined,
+      };
+      return acc;
+    }, {} as Record<string, PhraseFeedback>);
+  };
+
+  const mapFeedbackList = (items: Array<{ id: string; phrase_id: string; date: string; text: string; created_at?: string | null; updated_at?: string | null }>) => {
+    return items.map((item) => ({
+      id: item.id,
+      phraseId: item.phrase_id,
+      date: item.date,
+      text: item.text,
+      createdAt: item.created_at || undefined,
+      updatedAt: item.updated_at || undefined,
+    }));
   };
 
   const availableSpanishVoices = useMemo(
@@ -317,6 +359,15 @@ export default function ReviewModal({
       setAudioStatusLoading(true);
       setAudioError(null);
       setReviewError(null);
+      setFeedbackDate(getLocalDateString());
+      setFeedbackDraft('');
+      setFeedbackSaving(false);
+      setFeedbackModalError(null);
+      setFeedbackSidebarError(null);
+      setDeletingFeedbackDate(null);
+      setFeedbackModalOpen(false);
+      setFeedbackHistory({});
+      setFeedbackHistoryLoading(false);
       setIsSpeaking(false);
       setIsPaused(false);
       setShowAudioSettings(false);
@@ -468,6 +519,44 @@ export default function ReviewModal({
   }, [currentIndex, open, sessionPhrases]);
 
   useEffect(() => {
+    if (!open || sessionPhrases.length === 0) return;
+
+    let cancelled = false;
+    const current = sessionPhrases[currentIndex];
+    const loadHistory = async () => {
+      try {
+        setFeedbackHistoryLoading(true);
+        setFeedbackSidebarError(null);
+        const loaded = await phrasesAPI.getPhraseFeedbackHistory(current.id);
+        if (cancelled) return;
+        const mappedList = mapFeedbackList(loaded);
+        setFeedbackHistory(prev => ({ ...prev, [current.id]: mappedList }));
+        const byDate = loaded.find(item => item.date === feedbackDate);
+        setFeedbackDraft(byDate?.text ?? '');
+      } catch (error) {
+        console.error('Error loading phrase feedback history:', error);
+        if (!cancelled) setFeedbackSidebarError('No se pudo cargar el historial de feedback.');
+      } finally {
+        if (!cancelled) setFeedbackHistoryLoading(false);
+      }
+    };
+
+    loadHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, currentIndex, sessionPhrases]);
+
+  useEffect(() => {
+    if (!feedbackModalOpen || sessionPhrases.length === 0) return;
+    const current = sessionPhrases[currentIndex];
+    const currentHistory = feedbackHistory[current.id] ?? [];
+    const currentEntry = currentHistory.find(item => item.date === feedbackDate);
+    setFeedbackDraft(currentEntry?.text ?? '');
+    setFeedbackModalError(null);
+  }, [feedbackModalOpen, feedbackDate, currentIndex, feedbackHistory, sessionPhrases]);
+
+  useEffect(() => {
     if (!open || audioStatusLoading || !audioEnabled || showEditModal || sessionPhrases.length === 0) return;
     speakPhrase(buildAudioScript(sessionPhrases[currentIndex]));
   }, [audioEnabled, audioStatusLoading, currentIndex, open, showEditModal, preferredVoice, sessionPhrases]);
@@ -483,6 +572,8 @@ export default function ReviewModal({
   const currentPhrase = sessionPhrases[currentIndex];
   const category = categories.find(c => c.id === currentPhrase.categoryId);
   const subcategory = category?.subcategories.find(s => s.id === currentPhrase.subcategoryId);
+  const currentPhraseFeedbackHistory = feedbackHistory[currentPhrase.id] ?? [];
+  const currentFeedback = currentPhraseFeedbackHistory.find(item => item.date === feedbackDate);
 
   const handleNext = () => {
     if (currentIndex < sessionPhrases.length - 1) {
@@ -617,6 +708,93 @@ export default function ReviewModal({
   const handleEditSave = (formData: any) => {
     onEdit(currentPhrase.id, formData);
     setShowEditModal(false);
+  };
+
+  const handleSaveFeedback = async () => {
+    const trimmed = feedbackDraft.trim();
+    if (!trimmed) {
+      setFeedbackModalError('Escribe un feedback antes de guardar.');
+      return;
+    }
+
+    try {
+      setFeedbackSaving(true);
+      setFeedbackModalError(null);
+      const saved = await phrasesAPI.savePhraseFeedback(feedbackDate, currentPhrase.id, trimmed);
+      setFeedbackHistory(prev => {
+        const nextEntry = {
+          id: saved.id,
+          phraseId: saved.phrase_id,
+          date: saved.date,
+          text: saved.text,
+          createdAt: saved.created_at || undefined,
+          updatedAt: saved.updated_at || undefined,
+        };
+        const currentList = prev[currentPhrase.id] ?? [];
+        const filtered = currentList.filter(item => item.date !== saved.date);
+        return {
+          ...prev,
+          [currentPhrase.id]: [nextEntry, ...filtered].sort((a, b) => b.date.localeCompare(a.date)),
+        };
+      });
+      setFeedbackModalOpen(false);
+    } catch (error) {
+      console.error('Error saving phrase feedback:', error);
+      setFeedbackModalError('No se pudo guardar el feedback.');
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
+  // Eliminar desde el modal (usa la fecha seleccionada en el modal)
+  const handleDeleteFeedback = async () => {
+    try {
+      setFeedbackSaving(true);
+      setFeedbackModalError(null);
+      await phrasesAPI.deletePhraseFeedback(feedbackDate, currentPhrase.id);
+      setFeedbackHistory(prev => ({
+        ...prev,
+        [currentPhrase.id]: (prev[currentPhrase.id] ?? []).filter(item => item.date !== feedbackDate),
+      }));
+      setFeedbackDraft('');
+      setFeedbackModalOpen(false);
+    } catch (error) {
+      console.error('Error deleting phrase feedback:', error);
+      setFeedbackModalError('No se pudo eliminar el feedback.');
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
+  // Eliminar directamente desde el sidebar (sin abrir el modal)
+  const handleDeleteFeedbackFromSidebar = async (date: string) => {
+    try {
+      setDeletingFeedbackDate(date);
+      setFeedbackSidebarError(null);
+      await phrasesAPI.deletePhraseFeedback(date, currentPhrase.id);
+      setFeedbackHistory(prev => ({
+        ...prev,
+        [currentPhrase.id]: (prev[currentPhrase.id] ?? []).filter(item => item.date !== date),
+      }));
+      // Si el modal está abierto para esa fecha, cerrarlo
+      if (feedbackModalOpen && feedbackDate === date) {
+        setFeedbackDraft('');
+        setFeedbackModalOpen(false);
+      }
+    } catch (error) {
+      console.error('Error deleting phrase feedback from sidebar:', error);
+      setFeedbackSidebarError('No se pudo eliminar el feedback.');
+    } finally {
+      setDeletingFeedbackDate(null);
+    }
+  };
+
+  // Abrir modal en modo edición para un ítem del historial
+  const handleEditFeedbackFromSidebar = (item: PhraseFeedback) => {
+    setFeedbackDate(item.date);
+    setFeedbackDraft(item.text);
+    setFeedbackModalError(null);
+    setFeedbackModalOpen(true);
   };
 
   const handleVoiceChange = (voiceName: string) => {
@@ -901,8 +1079,9 @@ export default function ReviewModal({
 
       {/* Main Content */}
       <div className="h-[calc(100vh-88px)] overflow-y-auto">
-        <div className="container mx-auto px-4 py-8 pb-28">
-          <div className="w-full max-w-3xl mx-auto">
+        <div className="w-full px-6 py-8 pb-28 xl:px-10">
+          <div className="grid w-full grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
+            <div className="w-full max-w-5xl">
             {/* Quote Card */}
             <div className="relative mb-6 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 p-8 shadow-lg border border-blue-100 dark:border-blue-900/30">
               <MessageSquareQuote className="absolute top-5 left-5 h-10 w-10 text-blue-300 dark:text-blue-700 opacity-50" />
@@ -973,6 +1152,81 @@ export default function ReviewModal({
                 </div>
               </div>
             )}
+            </div>
+
+            <aside className="h-fit rounded-2xl border border-border bg-card p-4 shadow-sm xl:sticky xl:top-6 xl:justify-self-end xl:w-[340px]">
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-foreground">Feedback de la frase</h3>
+                <p className="mt-1 text-xs text-muted-foreground">Guarda lo que te pasó, cómo se aplicó la frase o qué aprendizaje te dejó.</p>
+              </div>
+
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFeedbackDate(getLocalDateString());
+                    setFeedbackDraft('');
+                    setFeedbackModalError(null);
+                    setFeedbackModalOpen(true);
+                  }}
+                  className="w-full rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                >
+                  + Agregar feedback
+                </button>
+
+                {feedbackHistoryLoading && <p className="text-xs text-muted-foreground">Cargando historial...</p>}
+                {feedbackSidebarError && <p className="text-xs text-destructive">{feedbackSidebarError}</p>}
+
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {currentPhraseFeedbackHistory.length === 0 && !feedbackHistoryLoading ? (
+                    <div className="rounded-xl border border-dashed border-border bg-background/60 px-3 py-4 text-center text-xs text-muted-foreground">
+                      Aún no hay feedback para esta frase.
+                    </div>
+                  ) : (
+                    currentPhraseFeedbackHistory.map((item) => (
+                      <div key={item.id} className="rounded-xl border border-border bg-background/70 p-3 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary self-start">
+                              {item.date}
+                            </span>
+                            {item.updatedAt && (
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(item.updatedAt).toLocaleString('es-ES')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              type="button"
+                              title="Editar feedback"
+                              onClick={() => handleEditFeedbackFromSidebar(item)}
+                              disabled={deletingFeedbackDate === item.date}
+                              className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Eliminar feedback"
+                              onClick={() => handleDeleteFeedbackFromSidebar(item.date)}
+                              disabled={deletingFeedbackDate === item.date}
+                              className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+                            >
+                              {deletingFeedbackDate === item.date
+                                ? <span className="text-[10px]">…</span>
+                                : <Trash2 className="h-3 w-3" />
+                              }
+                            </button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{item.text}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </aside>
           </div>
         </div>
       </div>
@@ -1022,6 +1276,87 @@ export default function ReviewModal({
         categories={categories}
         onSave={handleEditSave}
       />
+
+      <Dialog open={feedbackModalOpen} onOpenChange={(open) => { setFeedbackModalOpen(open); if (!open) setFeedbackModalError(null); }}>
+        <DialogContent className="max-w-lg border-border bg-background text-foreground">
+          <DialogHeader>
+            <DialogTitle>{currentFeedback ? 'Editar feedback' : 'Agregar feedback'}</DialogTitle>
+            <DialogDescription className="line-clamp-2">
+              {currentPhrase.text}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Fecha</label>
+              <input
+                type="date"
+                value={feedbackDate}
+                onChange={(e) => setFeedbackDate(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              {currentFeedback && currentFeedback.date !== feedbackDate && (
+                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  No hay feedback para esta fecha. Guardar creará uno nuevo.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Feedback</label>
+              <textarea
+                value={feedbackDraft}
+                onChange={(e) => setFeedbackDraft(e.target.value)}
+                placeholder="Ej: Hoy esta frase aplicó porque en una situación concreta pude verla clarísima..."
+                className="min-h-[200px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                maxLength={4000}
+              />
+              <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>{feedbackDraft.length}/4000</span>
+                {currentFeedback?.updatedAt && (
+                  <span>Actualizado: {new Date(currentFeedback.updatedAt).toLocaleString('es-ES')}</span>
+                )}
+              </div>
+            </div>
+
+            {feedbackModalError && <p className="text-xs text-destructive">{feedbackModalError}</p>}
+
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                {currentFeedback && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteFeedback}
+                    disabled={feedbackSaving}
+                    className="flex items-center gap-1.5 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50 transition-colors"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Eliminar
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setFeedbackModalOpen(false); setFeedbackModalError(null); }}
+                  disabled={feedbackSaving}
+                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveFeedback}
+                  disabled={feedbackSaving || feedbackHistoryLoading}
+                  className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {feedbackSaving ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {showLoopSetup && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
