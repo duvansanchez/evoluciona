@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Plus, Search, Edit2, Trash2, ToggleLeft, ToggleRight, Clock3, Send, ArrowUp, ArrowDown } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { DragDropContext, Droppable, Draggable, type DropResult } from 'react-beautiful-dnd';
+import { Plus, Search, Edit2, Trash2, ToggleLeft, ToggleRight, Clock3, Send, GripVertical } from 'lucide-react';
 import { questionsAPI, reportsAPI } from '@/services/api';
 import QuestionModal from '@/components/questions/QuestionModal';
 import type { Question, QuestionCategory } from '@/types';
@@ -41,7 +42,7 @@ export default function QuestionsAdmin() {
   const [showModal, setShowModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
   const [showInactive, setShowInactive] = useState(false);
-  const [reorderingId, setReorderingId] = useState<string | null>(null);
+  const [reorderingQuestions, setReorderingQuestions] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [sendingPartial, setSendingPartial] = useState(false);
@@ -235,17 +236,20 @@ export default function QuestionsAdmin() {
     }
   };
 
-  const filteredQuestions = questions
+  const orderedQuestions = useMemo(() => questions
+    .slice()
+    .sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1;
+      return (a.order - b.order) || (a.createdAt || '').localeCompare(b.createdAt || '');
+    }), [questions]);
+
+  const filteredQuestions = orderedQuestions
     .filter(q => {
       const matchesSearch = q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            q.description?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = filterCategory === 'all' || q.category === filterCategory;
       const matchesActive = showInactive || q.active;
       return matchesSearch && matchesCategory && matchesActive;
-    })
-    .sort((a, b) => {
-      if (a.active !== b.active) return a.active ? -1 : 1;
-      return (a.order - b.order) || (a.createdAt || '').localeCompare(b.createdAt || '');
     });
 
   const handleToggleActive = async (id: string) => {
@@ -342,40 +346,39 @@ export default function QuestionsAdmin() {
     return type;
   };
 
-  const handleMoveQuestion = async (questionId: string, direction: 'up' | 'down') => {
-    const orderedQuestions = [...questions].sort((a, b) => {
-      if (a.active !== b.active) return a.active ? -1 : 1;
-      return (a.order - b.order) || (a.createdAt || '').localeCompare(b.createdAt || '');
-    });
+  const handleDragEnd = async (result: DropResult) => {
+    const { destination, source } = result;
+    if (!destination || destination.index === source.index) return;
 
-    const currentIndex = orderedQuestions.findIndex(question => question.id === questionId);
-    if (currentIndex === -1) return;
+    const visibleIds = filteredQuestions.map(question => question.id);
+    const reorderedVisible = [...filteredQuestions];
+    const [movedQuestion] = reorderedVisible.splice(source.index, 1);
+    reorderedVisible.splice(destination.index, 0, movedQuestion);
 
-    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= orderedQuestions.length) return;
-
-    const current = orderedQuestions[currentIndex];
-    const target = orderedQuestions[targetIndex];
-    if (current.active !== target.active) return;
+    const nextOrderedQuestions = orderedQuestions.map(question => {
+      const visibleIndex = visibleIds.indexOf(question.id);
+      if (visibleIndex === -1) return question;
+      return reorderedVisible[visibleIndex];
+    }).map((question, index) => ({ ...question, order: index + 1 }));
 
     const previousQuestions = questions;
-    setReorderingId(questionId);
-    setQuestions(prev => prev.map(question => {
-      if (question.id === current.id) return { ...question, order: target.order };
-      if (question.id === target.id) return { ...question, order: current.order };
-      return question;
-    }));
+    setReorderingQuestions(true);
+    setQuestions(nextOrderedQuestions);
 
     try {
-      await Promise.all([
-        questionsAPI.updateQuestion(current.id, { order: target.order }),
-        questionsAPI.updateQuestion(target.id, { order: current.order }),
-      ]);
+      const changedQuestions = nextOrderedQuestions.filter(question => {
+        const previous = previousQuestions.find(item => item.id === question.id);
+        return previous && previous.order !== question.order;
+      });
+
+      await Promise.all(
+        changedQuestions.map(question => questionsAPI.updateQuestion(question.id, { order: question.order }))
+      );
     } catch (error) {
       console.error('Error reordering questions:', error);
       setQuestions(previousQuestions);
     } finally {
-      setReorderingId(null);
+      setReorderingQuestions(false);
     }
   };
 
@@ -576,6 +579,7 @@ export default function QuestionsAdmin() {
         </div>
 
         {/* Questions list */}
+        <DragDropContext onDragEnd={handleDragEnd}>
         <div className="space-y-3">
           {loading ? (
             <div className="bg-card rounded-xl p-12 border border-border text-center">
@@ -586,21 +590,31 @@ export default function QuestionsAdmin() {
               <p className="text-muted-foreground">No se encontraron preguntas</p>
             </div>
           ) : (
-            filteredQuestions.map((question, index) => (
-              <QuestionItem
-                key={question.id}
-                question={question}
-                canMoveUp={index > 0 && filteredQuestions[index - 1]?.active === question.active}
-                canMoveDown={index < filteredQuestions.length - 1 && filteredQuestions[index + 1]?.active === question.active}
-                isReordering={reorderingId === question.id}
-                onMoveQuestion={handleMoveQuestion}
-                onToggleActive={handleToggleActive}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-              />
-            ))
+            <Droppable droppableId="questions-admin-list">
+              {(dropProvided) => (
+                <div ref={dropProvided.innerRef} {...dropProvided.droppableProps} className="space-y-3">
+                  {filteredQuestions.map((question, index) => (
+                    <Draggable key={question.id} draggableId={`question:${question.id}`} index={index} isDragDisabled={reorderingQuestions}>
+                      {(dragProvided, dragSnapshot) => (
+                        <QuestionItem
+                          question={question}
+                          isReordering={reorderingQuestions}
+                          onToggleActive={handleToggleActive}
+                          onEdit={handleEdit}
+                          onDelete={handleDelete}
+                          dragProvided={dragProvided}
+                          isDragging={dragSnapshot.isDragging}
+                        />
+                      )}
+                    </Draggable>
+                  ))}
+                  {dropProvided.placeholder}
+                </div>
+              )}
+            </Droppable>
           )}
         </div>
+        </DragDropContext>
 
         {/* Question Modal */}
         <QuestionModal
@@ -616,22 +630,20 @@ export default function QuestionsAdmin() {
 
 function QuestionItem({
   question,
-  canMoveUp,
-  canMoveDown,
   isReordering,
-  onMoveQuestion,
   onToggleActive,
   onEdit,
   onDelete,
+  dragProvided,
+  isDragging,
 }: {
   question: Question;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
   isReordering: boolean;
-  onMoveQuestion: (id: string, direction: 'up' | 'down') => void;
   onToggleActive: (id: string) => void;
   onEdit: (question: Question) => void;
   onDelete: (id: string) => void;
+  dragProvided: any;
+  isDragging: boolean;
 }) {
   const typeLabels = {
     text: 'Texto',
@@ -650,9 +662,14 @@ function QuestionItem({
   };
 
   return (
-    <div className={`bg-card rounded-xl p-5 border transition-all ${
+    <div
+      ref={dragProvided.innerRef}
+      {...dragProvided.draggableProps}
+      className={`bg-card rounded-xl p-5 border transition-all ${
       question.active ? 'border-border' : 'border-border opacity-60'
-    }`}>
+      } ${isDragging ? 'shadow-xl ring-2 ring-primary/30' : ''}`}
+      style={dragProvided.draggableProps.style}
+    >
       <div className="flex items-start gap-4">
         {/* Order number */}
         <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-muted flex items-center justify-center font-bold text-muted-foreground">
@@ -691,24 +708,14 @@ function QuestionItem({
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={() => onMoveQuestion(question.id, 'up')}
-              disabled={!canMoveUp || isReordering}
-              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Subir"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => onMoveQuestion(question.id, 'down')}
-              disabled={!canMoveDown || isReordering}
-              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              title="Bajar"
-            >
-              <ArrowDown className="h-4 w-4" />
-            </button>
-          </div>
+          <button
+            {...dragProvided.dragHandleProps}
+            disabled={isReordering}
+            className="p-2 rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Arrastrar para reordenar"
+          >
+            <GripVertical className="h-5 w-5" />
+          </button>
           <button
             onClick={() => onToggleActive(question.id)}
             className={`p-2 rounded-lg transition-colors ${

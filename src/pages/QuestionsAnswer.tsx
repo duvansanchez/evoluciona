@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays, Pencil, MessageSquare, Trash2, SkipForward } from 'lucide-react';
+import { CheckCircle2, Clock, Save, AlertCircle, CalendarDays, Pencil, MessageSquare, Trash2, SkipForward, Info } from 'lucide-react';
 import { questionsAPI } from '@/services/api';
 import { getLocalDateString } from '@/lib/utils';
 import type { Question, QuestionFeedback } from '@/types';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export default function QuestionsAnswer() {
   const [searchParams] = useSearchParams();
@@ -19,6 +20,7 @@ export default function QuestionsAnswer() {
   const [feedbackDraft, setFeedbackDraft] = useState('');
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
 
   const todayKey = getLocalDateString();
   const dateParam = searchParams.get('date');
@@ -77,6 +79,21 @@ export default function QuestionsAnswer() {
       };
       return acc;
     }, {} as Record<string, QuestionFeedback>);
+  };
+
+  const activeQuestion = useMemo(
+    () => displayQuestions.find(question => question.id === activeQuestionId) ?? displayQuestions[0] ?? null,
+    [activeQuestionId, displayQuestions],
+  );
+
+  const focusQuestionField = (questionId: string) => {
+    const questionElement = document.querySelector<HTMLElement>(`[data-question-id="${questionId}"]`);
+    if (!questionElement) return;
+
+    questionElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    const interactiveElement = questionElement.querySelector<HTMLElement>('textarea, select, input[type="radio"], input[type="checkbox"]');
+    (interactiveElement ?? questionElement).focus();
   };
 
   useEffect(() => {
@@ -183,6 +200,91 @@ export default function QuestionsAnswer() {
 
     loadQuestions();
   }, []);
+
+  useEffect(() => {
+    if (displayQuestions.length === 0) {
+      setActiveQuestionId(null);
+      return;
+    }
+    setActiveQuestionId((prev) => (prev && displayQuestions.some(question => question.id === prev) ? prev : displayQuestions[0].id));
+  }, [displayQuestions]);
+
+  useEffect(() => {
+    if (loading || isHistory) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (feedbackQuestion) return;
+
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isEditable = Boolean(
+        target?.isContentEditable
+        || tagName === 'textarea'
+        || (tagName === 'input' && (target as HTMLInputElement).type !== 'radio' && (target as HTMLInputElement).type !== 'checkbox')
+        || tagName === 'select'
+      );
+
+      if (!activeQuestion) return;
+
+      if (event.ctrlKey && event.key === 'Enter' && !isViewOnly) {
+        event.preventDefault();
+        if (pendingToSave.length > 0) setShowConfirm(true);
+        return;
+      }
+
+      if (event.altKey && event.key.toLowerCase() === 'o' && !isViewOnly && !isEditable) {
+        event.preventDefault();
+        void handleToggleSkip(activeQuestion.id);
+        return;
+      }
+
+      if (event.altKey && event.key.toLowerCase() === 'f' && !isEditable) {
+        event.preventDefault();
+        openFeedback(activeQuestion);
+        return;
+      }
+
+      if (event.altKey && (event.key.toLowerCase() === 'j' || event.key.toLowerCase() === 'k')) {
+        event.preventDefault();
+        const currentIndex = displayQuestions.findIndex(question => question.id === activeQuestion.id);
+        if (currentIndex === -1) return;
+        const nextIndex = event.key.toLowerCase() === 'j'
+          ? Math.min(displayQuestions.length - 1, currentIndex + 1)
+          : Math.max(0, currentIndex - 1);
+        const nextQuestion = displayQuestions[nextIndex];
+        if (!nextQuestion) return;
+        setActiveQuestionId(nextQuestion.id);
+        window.setTimeout(() => focusQuestionField(nextQuestion.id), 0);
+        return;
+      }
+
+      if (isEditable) return;
+
+      const optionIndex = Number.parseInt(event.key, 10);
+      if (Number.isNaN(optionIndex) || optionIndex < 1 || optionIndex > 9) return;
+
+      const option = activeQuestion.options?.[optionIndex - 1];
+      if (!option) return;
+
+      if (activeQuestion.type === 'radio' || activeQuestion.type === 'select') {
+        event.preventDefault();
+        handleResponse(activeQuestion.id, option.value);
+        return;
+      }
+
+      if (activeQuestion.type === 'checkbox') {
+        event.preventDefault();
+        const selectedValues = Array.isArray(responses[activeQuestion.id]) ? responses[activeQuestion.id] as string[] : [];
+        const next = selectedValues.includes(option.value)
+          ? selectedValues.filter(value => value !== option.value)
+          : [...selectedValues, option.value];
+        handleResponse(activeQuestion.id, next);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeQuestion, feedbackQuestion, isHistory, isViewOnly, loading, pendingToSave.length, responses]);
 
   const handleResponse = (questionId: string, value: string | string[]) => {
     setResponses(prev => ({ ...prev, [questionId]: value }));
@@ -372,6 +474,29 @@ export default function QuestionsAnswer() {
                       ? (isViewOnly ? 'Respuestas de Ayer' : 'Preguntas de Ayer')
                       : 'Preguntas del Día'}
                 </h1>
+                {!isHistory && !isViewOnly && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label="Ver atajos de teclado"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" className="max-w-xs">
+                      <div className="space-y-1 text-xs">
+                        <p><strong>1-9</strong>: responder opciones</p>
+                        <p><strong>Alt+J</strong>: siguiente pregunta</p>
+                        <p><strong>Alt+K</strong>: pregunta anterior</p>
+                        <p><strong>Alt+O</strong>: omitir pregunta</p>
+                        <p><strong>Alt+F</strong>: abrir feedback</p>
+                        <p><strong>Ctrl+Enter</strong>: guardar respuestas</p>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
               <p className="text-sm text-muted-foreground capitalize">{targetDateLabel}</p>
             </div>
@@ -406,9 +531,11 @@ export default function QuestionsAnswer() {
                 feedback={feedbacks[question.id]}
                 isSkipped={skippedQuestionIds.has(question.id)}
                 isSaved={savedQuestions.has(question.id)}
+                isActive={activeQuestion?.id === question.id}
                 onChange={(value) => handleResponse(question.id, value)}
                 onToggleSkip={() => handleToggleSkip(question.id)}
                 onOpenFeedback={() => openFeedback(question)}
+                onActivate={() => setActiveQuestionId(question.id)}
                 readOnly={isViewOnly || isHistory}
                 showDeactivatedBadge={isHistory && !question.active}
               />
@@ -595,9 +722,11 @@ function QuestionCard({
   feedback,
   isSkipped,
   isSaved,
+  isActive,
   onChange,
   onToggleSkip,
   onOpenFeedback,
+  onActivate,
   readOnly = false,
   showDeactivatedBadge = false,
 }: {
@@ -607,9 +736,11 @@ function QuestionCard({
   feedback?: QuestionFeedback;
   isSkipped: boolean;
   isSaved: boolean;
+  isActive: boolean;
   onChange: (value: string | string[]) => void;
   onToggleSkip: () => void;
   onOpenFeedback: () => void;
+  onActivate: () => void;
   readOnly?: boolean;
   showDeactivatedBadge?: boolean;
 }) {
@@ -646,13 +777,19 @@ function QuestionCard({
   };
 
   return (
-    <div className={`bg-card rounded-xl p-6 border transition-all ${
+    <div
+      data-question-id={question.id}
+      tabIndex={0}
+      onFocus={onActivate}
+      onClick={onActivate}
+      className={`bg-card rounded-xl p-6 border transition-all ${
       isSkipped
         ? 'border-amber-400/60 bg-amber-50/30 shadow-sm'
         : readOnly
           ? 'border-green-200 bg-green-50/30'
           : isSaved ? 'border-green-500/50 shadow-sm' : isAnswered ? 'border-primary/50 shadow-sm' : 'border-border'
-    }`}>
+      } ${isActive ? 'ring-2 ring-primary/30' : ''}`}
+    >
       {/* Question header */}
       <div className="flex items-start gap-3 mb-4">
         <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
@@ -735,6 +872,7 @@ function QuestionCard({
           <textarea
             value={(value as string) || ''}
             onChange={(e) => onChange(e.target.value)}
+            onFocus={onActivate}
             placeholder="Escribe tu respuesta..."
             className="w-full min-h-[100px] px-4 py-3 rounded-lg border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
             maxLength={500}
@@ -745,6 +883,7 @@ function QuestionCard({
           <select
             value={(value as string) || ''}
             onChange={(e) => onChange(e.target.value)}
+            onFocus={onActivate}
             className="w-full px-4 py-3 rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
           >
             <option value="">Selecciona una opción...</option>
@@ -767,6 +906,7 @@ function QuestionCard({
                   value={opt.value}
                   checked={(value as string) === opt.value}
                   onChange={(e) => onChange(e.target.value)}
+                  onFocus={onActivate}
                   className="h-4 w-4 text-primary focus:ring-2 focus:ring-primary/50"
                 />
                 <span className="text-sm text-foreground">{opt.label}</span>
@@ -795,6 +935,7 @@ function QuestionCard({
                         : selectedValues.filter(v => v !== opt.value);
                       onChange(next);
                     }}
+                    onFocus={onActivate}
                     className="h-4 w-4 rounded text-primary focus:ring-2 focus:ring-primary/50"
                   />
                   <span className="text-sm text-foreground">{opt.label}</span>
